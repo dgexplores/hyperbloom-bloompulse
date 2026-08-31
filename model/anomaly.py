@@ -1,70 +1,94 @@
 """
-BloomPulse Anomaly Engine - FREE, CPU-only, no hardware
-Isolation Forest + heuristic LSTM-lite (uses rolling features)
-Trained on synthetic + NASA CMAPSS-style data
+BloomPulse anomaly engine - CPU-only, deterministic, no hardware.
+
+Isolation Forest over rolling sensor features, with ISO 10816-3 / NTN
+threshold gates layered on top so a hard physical breach always escalates
+regardless of what the unsupervised model thinks.
 """
 from __future__ import annotations
+
 import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
-# Thresholds from corpus: ISO 10816-3 + NTN manual synthetic
-VIB_NORMAL = 2.8
-VIB_ALERT = 4.5
-TEMP_RISE_THRESHOLD = 15.0
-PRESSURE_VARIANCE_ALERT = 12.0
+# Thresholds from corpus: ISO 10816-3 Table A.2 + NTN manual Sec 4.2
+VIB_NORMAL = 2.8            # mm/s - Zone B/C boundary
+VIB_ALERT = 4.5             # mm/s - Zone D, shutdown
+TEMP_RISE_THRESHOLD = 15.0  # degrees C over baseline
+PRESSURE_VARIANCE_ALERT = 12.0  # percent
+
+RECENT_WINDOW = 5   # readings summarised as the current condition
+MIN_BASELINE = 8    # readings needed before fitting on a baseline slice only
+
+FEATURES = ("temperature_c", "vibration_mm_s", "pressure_bar",
+            "vib_rolling_mean", "temp_rise", "pressure_variance_pct")
+
 
 class BloomPulseAnomaly:
+    """Single-use scorer. Construct one per series, because fitting costs
+    about a millisecond and a shared instance would leak one series'
+    baseline into the next request."""
+
     def __init__(self, contamination: float = 0.08):
         self.scaler = StandardScaler()
         self.model = IsolationForest(
             n_estimators=150,
             contamination=contamination,
             random_state=42,
-            n_jobs=-1
+            n_jobs=1,  # 150 trees on <=500 rows, threads cost more than they save
         )
-        self._fitted = False
 
     def _features(self, readings: list[dict]) -> np.ndarray:
-        """Extract 5-dim features per window: temp, vib, pressure, rolling vib mean, temp rise"""
+        """6-dim feature matrix, one row per reading. See FEATURES."""
         temps = np.array([r["temperature_c"] for r in readings], dtype=float)
         vibs = np.array([r["vibration_mm_s"] for r in readings], dtype=float)
-        pressures = np.array([r.get("pressure_bar", 5.0) for r in readings], dtype=float)
-        # rolling mean 5 - handles small n
-        vib_roll = np.array([np.mean(vibs[max(0,i-2):i+3]) for i in range(len(vibs))])
-        # temp rise vs baseline (first window mean)
-        baseline = float(np.mean(temps[:5])) if len(temps) >= 5 else float(temps[0])
-        temp_rise = temps - baseline
-        # pressure variance %
-        pressure_var = np.abs(pressures - np.mean(pressures)) / (np.mean(pressures)+1e-6) * 100
-        X = np.column_stack([temps, vibs, pressures, vib_roll, temp_rise, pressure_var])
-        return X
+        pressures = np.array(
+            [r.get("pressure_bar") if r.get("pressure_bar") is not None else 5.0
+             for r in readings], dtype=float)
 
-    def fit(self, normal_readings: list[dict]):
-        X = self._features(normal_readings)
-        Xs = self.scaler.fit_transform(X)
-        self.model.fit(Xs)
-        self._fitted = True
-        return self
+        # centred rolling mean, window 5, clipped at the series edges
+        vib_roll = np.array([vibs[max(0, i - 2):i + 3].mean() for i in range(len(vibs))])
+
+        # temperature rise measured against the opening baseline
+        baseline = float(temps[:MIN_BASELINE].mean())
+        temp_rise = temps - baseline
+
+        mean_pressure = float(pressures.mean())
+        denom = abs(mean_pressure) if abs(mean_pressure) > 1e-6 else 1.0
+        pressure_var = np.abs(pressures - mean_pressure) / denom * 100
+
+        return np.column_stack([temps, vibs, pressures, vib_roll, temp_rise, pressure_var])
 
     def score(self, readings: list[dict]) -> dict:
-        if not self._fitted:
-            # auto-fit on provided if not fitted (demo mode)
-            self.fit(readings[:10] if len(readings) > 10 else readings)
-        X = self._features(readings)
-        Xs = self.scaler.transform(X)
-        # IsolationForest decision: lower = more anomalous
-        raw = self.model.decision_function(Xs)  # higher = normal
-        # map to 0-1 anomaly score: invert + normalize
-        anomaly_scores = 0.5 - 0.5 * np.tanh(raw * 2)  # 0..1
-        agg_score = float(np.mean(anomaly_scores[-5:]))  # recent window
-        # heuristic LSTM-lite: amplify if thresholds crossed
-        latest = readings[-1]
-        max_vib = float(np.max([r["vibration_mm_s"] for r in readings[-5:]]))
-        max_temp_rise = float(np.max(X[:, 4][-5:]))
-        pressure_var = float(np.max(X[:, 5][-5:]))
+        if not readings:
+            raise ValueError("at least one reading is required")
 
-        # bump score if corporeal thresholds hit
+        X = self._features(readings)
+
+        # The forest only means something given a baseline it can learn a
+        # shape from. Too few rows, or a flat baseline with no variance at
+        # all, and it scores everything at roughly 0.5, which reads as
+        # "monitor" for a perfectly healthy machine. In those cases the
+        # threshold gates decide alone, starting from zero.
+        fit_slice = X[:max(MIN_BASELINE, len(X) // 2)]
+        modeled = len(X) >= MIN_BASELINE and bool(fit_slice.var(axis=0).max() > 1e-9)
+        if modeled:
+            # Fit on the opening slice, assuming a series starts healthy and
+            # degrades from there.
+            Xs = self.scaler.fit_transform(fit_slice)
+            self.model.fit(Xs)
+            raw = self.model.decision_function(self.scaler.transform(X))  # higher = normal
+            anomaly_scores = 0.5 - 0.5 * np.tanh(raw * 2)                 # maps to 0..1
+            agg_score = float(anomaly_scores[-RECENT_WINDOW:].mean())
+        else:
+            agg_score = 0.0
+
+        recent = X[-RECENT_WINDOW:]
+        max_vib = float(recent[:, 1].max())
+        max_temp_rise = float(recent[:, 4].max())
+        pressure_var = float(recent[:, 5].max())
+
+        # Physical threshold gates. A real breach floors the score.
         if max_vib > VIB_ALERT:
             agg_score = max(agg_score, 0.82)
         elif max_vib > VIB_NORMAL:
@@ -74,30 +98,26 @@ class BloomPulseAnomaly:
         if pressure_var > PRESSURE_VARIANCE_ALERT:
             agg_score = max(agg_score, 0.71)
 
-        agg_score = float(np.clip(agg_score, 0, 1))
+        agg_score = float(np.clip(agg_score, 0.0, 1.0))
+        failure_prob = float(np.clip(agg_score * 0.95 + 0.05 * (max_vib / 6.0), 0.0, 1.0))
 
-        # map to failure probability 7d and days
-        failure_prob = float(np.clip(agg_score * 0.95 + 0.05 * (max_vib / 6.0), 0, 1))
         if agg_score < 0.50:
-            severity = "normal"
-            days = None
+            severity, days = "normal", None
         elif agg_score < 0.65:
-            severity = "monitor"
-            days = 14
+            severity, days = "monitor", 14
         elif agg_score < 0.82:
-            severity = "alert"
-            days = 7
+            severity, days = "alert", 7
         else:
-            severity = "critical"
-            days = 3
+            severity, days = "critical", 3
 
-        # contributing feature
-        feats = {
-            "vibration": max_vib,
-            "temperature_rise": max_temp_rise,
-            "pressure_variance": pressure_var
-        }
-        contrib = max(feats, key=feats.get)
+        # Compare each driver as a fraction of its own threshold. Comparing
+        # raw values would pit mm/s against degrees against percent.
+        contrib = max(
+            {"vibration": max_vib / VIB_ALERT,
+             "temperature_rise": max_temp_rise / TEMP_RISE_THRESHOLD,
+             "pressure_variance": pressure_var / PRESSURE_VARIANCE_ALERT}.items(),
+            key=lambda kv: kv[1],
+        )[0]
 
         return {
             "anomaly_score": round(agg_score, 3),
@@ -105,15 +125,16 @@ class BloomPulseAnomaly:
             "predicted_failure_days": days,
             "severity": severity,
             "contributing_feature": contrib,
+            "baseline_modeled": modeled,
+            "reading_count": len(readings),
             "metrics": {
                 "max_vib": round(max_vib, 3),
                 "max_temp_rise": round(max_temp_rise, 3),
-                "pressure_var": round(pressure_var, 2)
-            }
+                "pressure_var": round(pressure_var, 2),
+            },
         }
 
-# Singleton for demo
-_anomaly_engine = BloomPulseAnomaly()
 
-def get_engine() -> BloomPulseAnomaly:
-    return _anomaly_engine
+def score_readings(readings: list[dict]) -> dict:
+    """Score one series. Fresh engine per call, see BloomPulseAnomaly."""
+    return BloomPulseAnomaly().score(readings)

@@ -53,6 +53,9 @@ class PulseRequest(BaseModel):
 
 class PulseResponse(BaseModel):
     anomaly: AnomalyResult
+    # Echoed back so a client charts exactly the series that was scored,
+    # instead of parsing the CSV a second time and drifting from the server.
+    readings: list[SensorReading]
     citations: list[Citation]
     confidence: Confidence
     work_order: dict

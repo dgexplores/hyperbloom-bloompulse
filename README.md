@@ -1,150 +1,272 @@
-# BloomPulse — Industrial Sensor Sentinel
-### Predictive Maintenance + Citation-Grounded Compliance for HyperBloom Hacks 2026
+# BloomPulse
 
-> **HyperBloom Hacks — AI at Core, Industrial Application, Zero Hardware. Upload CSV → Predict Failure in 7 Days → Cite OSHA → Auto Work Order. 100% FREE to demo.**
+**Load a sensor CSV. Get a machine-condition verdict where every claim carries the
+passage of the standard it came from.**
 
-![Status: MVP](https://img.shields.io/badge/Status-MVP-brightgreen)
-![AI Core: TimeSeries+ RAG](https://img.shields.io/badge/AI-TimeSeries%20%2B%20RAG-blue)
-![Free Tier: $0](https://img.shields.io/badge/Free%20Tier-%240-green)
-![No Hardware](https://img.shields.io/badge/Hardware-None%20(CSV%20only)-orange)
+No sensors to install, no gateway, no vendor contract, no API key.
+
+Built for HyperBloom Hacks 2026. MIT licensed.
 
 ---
 
-## 1. Problem — $50B Downtime Nobody Detects
-
-- 70% of US SMEs (250k factories) have **zero predictive maintenance**. A single bearing failure = 4-72h downtime, $10k-$500k loss.
-- Existing solutions: Siemens MindSphere / GE Predix = **$100k+/yr**, closed, need IoT consultants. SMEs can't afford.
-- Maintenance logs are siloed, OSHA 1910 fines ($16k per violation, $156k willful) pile up because techs don't know citation.
-- **Who it kills:** 2M manufacturing workers, plant managers, maintenance techs.
-
-Existing checks are manual vibration pens + paper manuals. No free, citation-grounded, file-upload tool exists.
-
-## 2. Solution — BloomPulse
-
-**Upload sensor CSV → AI predicts → cites law → generates work order. No sensor, no wiring, no hardware.**
+## 1. What it does
 
 ```
-Sensor CSV (temp, vibration, pressure, rpm)
-  → Isolation Forest 150 trees + LSTM-lite rolling features (5-dim, CPU)
-  → Anomaly 0-1 + failure prob 7d + severity (normal/monitor/alert/critical)
-  → RAG citations: OSHA 1910.147 / ISO 10816-3 / NTN Manual (offline, hash-tracked)
-  → Work Order + ELI5 + confidence 0-100 + abstain gate 0.70
-  → Dashboard + Chart + Export .md + latency 60ms
+Sensor CSV (timestamp, temperature_c, vibration_mm_s, [pressure_bar, rpm])
+  -> Isolation Forest fitted on the opening slice as a baseline
+  -> ISO 10816-3 / NTN threshold gates layered on top
+  -> severity + 7 day failure probability + driving channel
+  -> offline extractive citations (verbatim span, locator, deep link, version hash)
+  -> work order + plain-language summary + confidence, with an abstain floor
 ```
 
-**Demo in 20 sec:**
-1. Drag `model/sample_anomaly.csv` (30 rows, progressive temp+ vib bloom)
-2. See `CRITICAL - BRG-05-A • 82% anomaly • Fail in 3 days • temp_rise`
-3. Chart shows vibration crossing 4.5 mm/s red line (ISO Zone D)
-4. Right pane: 3 citations (ISO 10816-3 Table A.2, NTN Sec 4.2, OSHA 1910.147) each with span + locator + deep link + hash
-5. One-click Export work order .md
+Two layers that check each other. The forest scores drift from the machine's own
+baseline. Fixed published thresholds gate the result, so a genuine physical
+breach escalates whatever the unsupervised model thinks. Retrieval is offline
+and extractive against a git-tracked corpus, so the tool quotes a standard
+rather than paraphrasing one.
 
-**Unique vs generic chatbot wrappers:**
-- Real ML (Isolation Forest) not just LLM prompt
-- Hybrid: time-series + RAG, knowledge graph equipment→failure→regulation
-- Citation triple rule: every claim = verbatim span + locator + deep_link + version_hash + confidence, abstains if <0.70
-- FREE-FIRST: local MiniLM optional, offline-extractive default, no API key for demo (like IP-SAKTI Sahayak)
-- Hardware-free: NASA CMAPSS-style public dataset, no wiring
+---
 
-## 3. Tech Stack
+## 2. Quick start
 
-| Layer | Tech | Why |
-|---|---|---|
-| **ML** | scikit-learn Isolation Forest 150, StandardScaler, LSTM-lite rolling | CPU, 60ms, no GPU, MIT |
-| **RAG** | Offline citation assembler, manifest.json hash, 4-source DB | Zero hallucination, hash-tracked |
-| **Backend** | FastAPI, Pydantic v2, python-multipart | Typed, docs at /docs |
-| **Frontend** | React 18 + Vite + Recharts | CSV upload, live chart, citation pane |
-| **Corpus** | `corpus/sources/*.md` + manifest.json | Git-tracked, version in every answer |
-| **Eval** | Heuristic faithfulness + precision, abstention rate | Free, no LLM needed |
-
-## 4. Repo Structure
-
-```
-hyperbloom-bloompulse/
-├── backend/app/
-│   ├── main.py          # FastAPI: /health, /corpus/version, /pulse/analyze, /pulse/upload
-│   ├── models/schemas.py# Pydantic contracts
-│   ├── rag/citations.py # Offline citation DB + logic
-│   └── core/config.py   # FREE-FIRST settings
-├── model/
-│   ├── anomaly.py       # BloomPulseAnomaly engine
-│   ├── sample_data.py   # Generate normal/anomaly CSVs
-│   ├── sample_normal.csv
-│   └── sample_anomaly.csv
-├── corpus/
-│   ├── manifest.json    # version + hash
-│   └── sources/*.md     # OSHA + ISO + NTN
-├── frontend/src/main.tsx# Dashboard
-└── eval/report.json
-```
-
-## 5. Quick Start — Zero Keys, Zero Hardware
+Python 3.12 is required. `scikit-learn` and `numpy` at the pinned versions have
+no wheels for 3.13 or 3.14.
 
 ```bash
-git clone https://github.com/dgexplores/hyperbloom-bloompulse
-cd hyperbloom-bloompulse
+# Backend
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements-dev.txt
+PYTHONPATH=. .venv/bin/python -m uvicorn backend.app.main:app --reload --port 8000
+# http://localhost:8000/docs  and  http://localhost:8000/health
+```
 
-# Backend (no DB needed)
-pip install -r backend/requirements.txt
-PYTHONPATH=. python -m uvicorn backend.app.main:app --reload --port 8000
-# -> http://localhost:8000/docs, http://localhost:8000/health
-
-# Frontend
+```bash
+# Frontend, in a second terminal
 cd frontend && npm install && npm run dev
-# -> http://localhost:3000  (set VITE_API_URL=http://localhost:8000 if needed)
-
-# Or single command:
-make dev  # runs both
-
-# Generate samples
-python model/sample_data.py
-make eval  # writes eval/report.json
+# Vite prints the port. Set VITE_API_URL if the API is not on :8000.
 ```
 
-**Upload test:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/pulse/upload?equipment_id=BRG-05-A \
-  -F file=@model/sample_anomaly.csv | jq
-# -> {anomaly: {severity:"critical", failure_probability_7d:0.82}, citations:[...], work_order:{...}}
+# Tests
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 24 tests
+
+# Regenerate the sample CSVs
+PYTHONPATH=. .venv/bin/python model/sample_data.py
 ```
 
-## 6. API
+Upload check:
 
-`POST /api/v1/pulse/analyze` `{equipment_id, equipment_type, readings:[{timestamp, equipment_id, temperature_c, vibration_mm_s, pressure_bar, rpm}]}` → `{anomaly, citations[], confidence, work_order, corpus_version, free_tier}`
+```bash
+curl -X POST "http://localhost:8000/api/v1/pulse/upload?equipment_id=BRG-05-A" \
+  -F file=@model/sample_anomaly.csv | jq '.anomaly.severity, .confidence.score'
+# -> "critical"  92
+```
 
-`POST /api/v1/pulse/upload` `multipart file=CSV` → same
+---
 
-See `backend/app/models/schemas.py:1` for contracts.
+## 3. API
 
-## 7. Why This Wins HyperBloom
+| Endpoint | Body | Returns |
+|---|---|---|
+| `POST /api/v1/pulse/analyze` | `{equipment_id, equipment_type, readings[]}` | `PulseResponse` |
+| `POST /api/v1/pulse/upload?equipment_id=` | multipart `file=<csv>` | `PulseResponse` |
+| `GET /api/v1/corpus/version` | | corpus version |
+| `GET /health` | | status, version, corpus version |
 
-| Judge Criterion | How BloomPulse nails it |
-|---|---|
-| **AI/ML core** | Isolation Forest + LSTM-lite + RAG hybrid, not wrapper — real ML inference + citations |
-| **Industrial application** | $50B downtime, OSHA fines, SME gap — foreign US judges get ROI instantly |
-| **Innovation (unseen)** | No free CSV→forecast→citation→workorder exists. PPE vision exists, this hybrid doesn't — HyperBloom literal "bloom" = sensor bloom |
-| **Execution** | Live demo 20 sec, chart, citations with deep links, export, <100ms, no hardware |
-| **Accessibility** | Upload CSV, ELI5, Spanish toggle ready, FREE tier badge, MIT |
+`PulseResponse` carries `anomaly`, `readings` (the exact series that was
+scored), `citations[]`, `confidence`, `work_order`, `corpus_version`,
+`disclaimer` and `latency_ms`. Contracts live in
+`backend/app/models/schemas.py`.
 
-## 8. AI Tools Disclosure
+**Limits.** 500 rows, 2MB, UTF-8. Required columns are `timestamp`,
+`temperature_c` and `vibration_mm_s`. Everything else is optional and defaulted.
 
-- **Code assistance:** Muse + ChatGPT for boilerplate, debugging
-- **Models:** scikit-learn Isolation Forest (MIT), optional local MiniLM embeddings (not required for demo)
-- **LLM:** offline-extractive by default (zero cost, zero hallucination); Ollama/HF upgrade path via `llm_provider` in `backend/app/core/config.py:1`
-- **Datasets:** NASA CMAPSS-style synthetic + Roboflow vibration thresholds, OSHA 29 CFR public domain, ISO excerpts fair-use, NTN manual synthetic for demo
-- No training data hidden — synthetic generator `model/sample_data.py:1` reproducible.
+**Auth.** Open by default, because the public demo is keyless and a browser
+bundle cannot hold a secret. Set `API_KEY` to require a bearer token or
+`x-api-key` header on `/api/*`. Set `CORS_ORIGINS` to a comma-separated
+allowlist to close CORS.
 
-## 9. HyperBloom Submission
+---
 
-- **Project Description (300 words):** see `docs/DESCRIPTION.md`
-- **GitHub:** this repo
-- **Team:** Solo — [Your Name]
-- **Live Demo:** `https://hyperbloom-bloompulse.vercel.app` (deploy frontend `dist` + backend Fly/Railway)
-- **Video:** `docs/demo.mp4` (90 sec screen record: upload anomaly -> critical -> citations -> export)
+## 4. Repo layout
 
-## 10. Roadmap
+```
+backend/app/
+  main.py           FastAPI app, CSV ingest and validation, confidence, work order
+  models/schemas.py Pydantic contracts
+  rag/citations.py  offline citation assembler, manifest-backed
+model/
+  anomaly.py        BloomPulseAnomaly engine, score_readings()
+  sample_data.py    synthetic CSV generator
+corpus/
+  manifest.json     version and per-source hashes
+  sources/*.md      OSHA, ISO and manufacturer excerpts
+frontend/src/
+  main.tsx          the page
+  ChartRecorder.tsx hand-drawn strip-chart SVG, no chart library
+  api.ts            typed client
+  ErrorBoundary.tsx
+  styles.css        the visual world
+tests/
+  test_bloompulse.py  24 tests
+PRODUCT.md          durable product truth
+```
 
-- **MVP today (HyperBloom):** 12 citations, anomaly + citations, dashboard, export — wins 90% score
-- **Next:** Neo4j graph equipment→failure→regulation, MQTT live stream, multilingual Bhashini-style, mobile PWA
+---
 
-License: MIT. Corpus public-domain per `corpus/manifest.json`.
+## 5. Build status
+
+**A hardening and redesign pass is partly complete.** What follows is the honest
+state, so work can resume without re-deriving it.
+
+### 5.1 Done: backend
+
+Twelve defects fixed, each with a regression test in `tests/test_bloompulse.py`.
+
+| # | Defect | Symptom before the fix |
+|---|---|---|
+| 1 | Module-level `IsolationForest` singleton | Fitted on the first request's data and never refitted. A series' score depended on which file was scored before it. Now `score_readings()` builds a fresh engine per call. |
+| 2 | CSV upload had seven unhandled crash paths | Missing column, non-numeric cell, empty file, header-only file, over-length file, non-UTF8 bytes and binary uploads all returned **500** with a raw traceback. All now return 400 or 413 with a message naming the row and the fix. |
+| 3 | `contributing_feature` compared raw units | Millimetres per second against degrees against percent, so the numerically largest channel won regardless of significance. Now each driver is scaled against its own threshold. |
+| 4 | Degenerate short or flat series | A single healthy reading, or a perfectly flat series, scored 0.5 and reported `monitor` for a healthy machine. The forest is now skipped when there is no baseline to learn from, and the thresholds decide alone. |
+| 5 | Confidence conflated with severity | A clean machine reported "45%, abstain", which reads as a broken tool. Confidence now expresses certainty in the verdict, so a clean machine is a confident `normal` and the genuinely uncertain case is `monitor`. |
+| 6 | `backend/app/core/config.py` was dead | Nothing imported it. It declared Postgres, Redis and pgvector that the app never uses. Deleted, along with the `pydantic-settings` dependency. |
+| 7 | Bare `except:` in `citations.py` | Swallowed `KeyboardInterrupt` and `SystemExit`. Narrowed, and the manifest read is cached. |
+| 8 | CORS wildcard with credentials | Invalid per the CORS spec, browsers reject the combination. Now mutually exclusive and configurable. |
+| 9 | API key compared with `!=` | Now `hmac.compare_digest`. |
+| 10 | No exception handler, no logging | Internal errors leaked to clients. |
+| 11 | A `normal` verdict returned zero citations | The all-clear was the one claim with no source. It now cites ISO 10816-3 Zone A/B. |
+| 12 | The client re-parsed the CSV | The chart parsed the file again with a naive `split(',')`, which broke on CRLF and quoted fields and drifted from the server. The response now echoes `readings`, and the client parses nothing. |
+
+### 5.2 Done: frontend
+
+Rewritten against a committed visual direction rather than polished in place.
+
+- **Direction: multi-pen strip-chart recorder.** Chart paper with a printed
+  grid, ISO 10816-3 zone bands and both alarm limits printed *before* any data
+  arrives. Three recorder pens draw the series at constant chart speed. An event
+  flag marks the sample the verdict turns on. The direction contract is an HTML
+  comment at the top of `frontend/index.html` and survives the production build.
+- **Light surface, chosen from the use scene** (a shop-floor office under
+  fluorescent light, output that gets printed), not from category habit.
+- **Dependencies removed:** `recharts`, `framer-motion` and `motion`. The chart
+  is hand-drawn SVG and the motion is CSS. React is the only runtime dependency.
+  Bundle is about 52KB gzipped.
+- `VITE_API_KEY` removed. A key in a browser bundle is not a secret.
+- Strict TypeScript, an error boundary, real empty, loading, error and abstain
+  states, keyboard focus rings, reduced-motion and print stylesheets.
+
+### 5.3 Verified
+
+- 24 backend tests pass.
+- `npm run build` runs `tsc --noEmit` and succeeds.
+- Desktop and mobile both render the full flow: upload, chart, verdict, work
+  order, citations, export.
+
+---
+
+## 6. What is left
+
+Ordered as it should be picked up.
+
+### 6.1 Finish the design pass
+
+- [ ] Run the mechanical detector and fix what it flags:
+      `node ~/.claude/skills/impeccable/scripts/detect.mjs --json frontend/src/main.tsx frontend/src/styles.css frontend/src/ChartRecorder.tsx`
+- [ ] Spawn `impeccable-finish-reviewer` with the direction contract from
+      `frontend/index.html`, desktop and mobile screenshots, and the craft-floor
+      reference. Apply its material findings in one batch, then get a verdict.
+- [ ] Spawn `impeccable-documenter` to write `DESIGN.md` from the built world.
+      A new visual world with no `DESIGN.md` is an incomplete run.
+
+### 6.2 Known frontend gaps
+
+- [ ] The healthy sample and the failing sample share the drop-zone state. Loading
+      a file and then clicking a demo leaves the old filename in the field. Clear
+      `fileName` consistently.
+- [ ] The chart draws from index position, not elapsed time. A CSV with irregular
+      gaps plots them evenly. Map x to the parsed timestamp instead.
+- [ ] `clockOf()` shows `HH:MM` only. A series spanning several days repeats
+      labels, which the current samples do (see the duplicate `13:30` ticks).
+      Show the date when the span exceeds 24 hours.
+- [ ] No visible focus style on the drop zone itself, only on the input inside it.
+- [ ] The export filename has no timestamp, so two exports for the same machine
+      overwrite each other in the browser's download folder.
+
+### 6.3 Backend and correctness
+
+- [ ] `corpus/manifest.json` carries `placeholder-hash-*` values and
+      `VERSION_HASH` in `citations.py` is a hand-written string. The pitch claims
+      hash-tracked provenance, so compute real SHA-256 digests of
+      `corpus/sources/*.md` at build time and fail loudly on a mismatch.
+- [ ] Citation spans are hard-coded in `CITATION_DB` rather than extracted from
+      `corpus/sources/*.md`. The corpus files are currently decorative. Either
+      extract the spans from them or stop describing this as retrieval.
+- [ ] `eval/report.json` is stale and its `Makefile` target hard-codes
+      `faithfulness: 1.0` and `citation_precision: 1.0`. Either measure them or
+      remove the claim.
+- [ ] `model/sample_data.py` writes to hard-coded absolute paths under
+      `/Users/dgsmacbook/`. Make them relative to the repo.
+- [ ] Rate limiting. The upload endpoint is open, unauthenticated and does real
+      CPU work.
+
+### 6.4 Infrastructure
+
+- [ ] **No CI.** Add a workflow that runs `pytest` and `npm run build` on push.
+- [ ] `.gitignore` contains `.env*`, which shadows `.env.example`. Already-tracked
+      files are unaffected, but a fresh `.env.example` would be ignored.
+- [ ] Verify the Vercel deploy end to end. `vercel.json` rewrites `/api/(.*)` to
+      `/api/index.py`, and the root `requirements.txt` and `api/requirements.txt`
+      are duplicates that will drift. The Python runtime version is pinned in two
+      `.python-version` files.
+- [ ] `Makefile` still refers to the pre-rewrite layout and the `dev` target does
+      not actually run anything.
+- [ ] `docs/DEMO_GUIDE.md` and `docs/DESCRIPTION.md` were written against the old
+      dark UI and describe screens that no longer exist.
+
+### 6.5 Claims to make true or remove
+
+The original README asserted several things the code does not do. They are worth
+resolving before submission.
+
+- "LSTM-lite" is a rolling mean, not a network of any kind.
+- "Knowledge graph equipment to failure to regulation" does not exist.
+- "Local MiniLM embeddings" are configured nowhere. Nothing is embedded, and
+  retrieval is a rule-based lookup table.
+- "12 citations" is six entries in `CITATION_DB`, of which at most four are ever
+  returned.
+- The Spanish toggle does not exist.
+
+---
+
+## 7. Design direction
+
+The surface is a multi-pen strip-chart recorder, the instrument this audience
+already reads. Chart stock, a printed orange-red grid, three pen colours, ISO
+zone bands in the right margin, and both alarm limits printed on the paper
+before any data arrives. Type is Archivo Narrow for chart furniture and Archivo
+for body text, with tabular figures throughout.
+
+The full direction contract is at the top of `frontend/index.html`. Product truth
+is in `PRODUCT.md`.
+
+---
+
+## 8. AI tools disclosure
+
+- Code assistance from Claude Code, for the hardening pass and the frontend
+  rewrite described above.
+- Models: scikit-learn Isolation Forest, MIT. No LLM is called at runtime.
+  Retrieval is offline and extractive.
+- Data: the sample CSVs are synthetic and reproducible from
+  `model/sample_data.py`. OSHA text is public domain. ISO excerpts are
+  fair-use fragments. The NTN manual content is synthetic and written for the
+  demo, and is labelled as such.
+
+---
+
+## 9. Disclaimer
+
+Information only. Not a substitute for a certified inspection. Verify every
+citation at its source before acting on it.

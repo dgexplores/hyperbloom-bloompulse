@@ -1,108 +1,295 @@
-"""BloomPulse FastAPI - FREE, offline, citation-grounded"""
-from fastapi import FastAPI, UploadFile, File
+"""BloomPulse API - offline, citation-grounded, no API keys needed to demo."""
+from __future__ import annotations
+
+import csv
+import hmac
+import io
+import logging
+import os
+import time
+
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-import time, csv, io
-from backend.app.models.schemas import PulseRequest, PulseResponse, AnomalyResult, Confidence, HealthResponse, SensorReading
+from fastapi.responses import JSONResponse
+
+from backend.app.models.schemas import (
+    AnomalyResult, Confidence, EquipmentType, HealthResponse,
+    PulseRequest, PulseResponse, SensorReading,
+)
 from backend.app.rag.citations import citations_for, corpus_version
-from model.anomaly import get_engine
+from model.anomaly import (
+    PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
+    score_readings,
+)
+
+logger = logging.getLogger("bloompulse")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+
+MAX_ROWS = 500
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+REQUIRED_COLUMNS = {"timestamp", "temperature_c", "vibration_mm_s"}
+
+API_KEY = os.getenv("API_KEY", "")
+# Comma-separated allowlist. Default open, because the demo is public and
+# carries no credentials or user data.
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 
 app = FastAPI(title="BloomPulse - Industrial Sensor Sentinel", version="0.1.0-pulse")
-# Auth: optional API_KEY env - if set, require Bearer header; else FREE tier open (HyperBloom demo)
-import os
-API_KEY = os.getenv("API_KEY", "")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 
-@app.middleware("http")
-async def auth_middleware(request, call_next):
-    if API_KEY and request.url.path.startswith("/api/"):
-        auth = request.headers.get("authorization", "")
-        if auth != f"Bearer {API_KEY}" and request.headers.get("x-api-key") != API_KEY:
-            from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized - missing or invalid API key"})
-    return await call_next(request)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+    # Wildcard origins and credentials are mutually exclusive per the CORS
+    # spec, and browsers reject the combination outright.
+    allow_credentials="*" not in CORS_ORIGINS,
+)
+
+
+def require_api_key(request: Request) -> None:
+    """No-op unless API_KEY is set, keeping the public demo keyless."""
+    if not API_KEY:
+        return
+    presented = request.headers.get("x-api-key") or ""
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        presented = auth[7:]
+    if not hmac.compare_digest(presented, API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+@app.exception_handler(Exception)
+async def unhandled(request: Request, exc: Exception) -> JSONResponse:
+    """Last resort. Log the trace, return a clean body, never leak internals."""
+    logger.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal error"})
+
+
+def parse_sensor_csv(raw: bytes, default_equipment_id: str) -> list[SensorReading]:
+    """Bytes to validated readings, raising HTTP 400 with an actionable message.
+
+    Every rejection a user can trigger is answered here, so callers never see
+    a KeyError, a ValueError or a decoding failure surface as a 500.
+    """
+    if not raw.strip():
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="File is not UTF-8 text. Export the sheet as a plain CSV and retry.",
+        )
+
+    reader = csv.DictReader(io.StringIO(text))
+    columns = {(c or "").strip() for c in (reader.fieldnames or [])}
+    missing = REQUIRED_COLUMNS - columns
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV is missing required column(s): {', '.join(sorted(missing))}. "
+                   f"Expected header: timestamp, equipment_id, temperature_c, "
+                   f"vibration_mm_s, pressure_bar, rpm",
+        )
+
+    def number(row: dict, key: str, line: int, default: float | None = None) -> float | None:
+        value = (row.get(key) or "").strip()
+        if not value:
+            if default is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Row {line}: '{key}' is empty and has no default.",
+                )
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Row {line}: '{key}' is {value!r}, which is not a number.",
+            )
+
+    readings: list[SensorReading] = []
+    for line, row in enumerate(reader, start=2):  # line 1 is the header
+        if not any((v or "").strip() for v in row.values()):
+            continue  # tolerate blank lines, including a trailing newline
+        if len(readings) >= MAX_ROWS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"CSV has more than {MAX_ROWS} data rows. "
+                       f"Split the file or trim it to the most recent {MAX_ROWS}.",
+            )
+        timestamp = (row.get("timestamp") or "").strip()
+        if not timestamp:
+            raise HTTPException(status_code=400, detail=f"Row {line}: 'timestamp' is empty.")
+        readings.append(SensorReading(
+            timestamp=timestamp,
+            equipment_id=(row.get("equipment_id") or "").strip() or default_equipment_id,
+            temperature_c=number(row, "temperature_c", line),
+            vibration_mm_s=number(row, "vibration_mm_s", line),
+            pressure_bar=number(row, "pressure_bar", line, default=5.0),
+            rpm=number(row, "rpm", line, default=1750.0),
+        ))
+
+    if not readings:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV has a header but no data rows.",
+        )
+    return readings
+
+
+CONFIDENCE_FLOOR = 70.0  # below this the verdict is reported as an abstention
+
+
+def _confidence(result: dict) -> Confidence:
+    """Certainty in the verdict, not the severity of it.
+
+    A clean machine is a high-confidence "normal". The genuinely uncertain
+    case is "monitor", where readings have drifted from baseline but cleared
+    no published limit, so the call between normal and alert is unsupported.
+    """
+    severity = result["severity"]
+    m = result["metrics"]
+    drivers = [
+        name for name, value, limit in (
+            ("vibration", m["max_vib"], VIB_ALERT),
+            ("temperature rise", m["max_temp_rise"], TEMP_RISE_THRESHOLD),
+            ("pressure variance", m["pressure_var"], PRESSURE_VARIANCE_ALERT),
+        ) if value > limit
+    ]
+
+    if severity == "critical":
+        if len(drivers) >= 2:
+            score = 92.0
+            rationale = (f"{len(drivers)} independent channels are past their limits "
+                         f"({', '.join(drivers)}), and they agree.")
+        else:
+            score = 85.0
+            rationale = (f"Vibration {m['max_vib']} mm/s is past the ISO 10816-3 Zone D "
+                         f"shutdown limit of {VIB_ALERT} mm/s.")
+    elif severity == "alert":
+        score = 84.0
+        rationale = (f"{result['contributing_feature'].replace('_', ' ').capitalize()} "
+                     f"has crossed its ISO/NTN threshold, with no second channel "
+                     f"confirming it yet.")
+    elif severity == "monitor":
+        score = 62.0
+        rationale = ("Readings have drifted from baseline but clear every published "
+                     "limit. The call between normal and alert is not yet supported.")
+    else:
+        score = 88.0
+        rationale = (f"Vibration peaks at {m['max_vib']} mm/s against a {VIB_NORMAL} mm/s "
+                     f"Zone B/C boundary, and temperature is within "
+                     f"{m['max_temp_rise']} C of baseline. Comfortably inside Zone A/B.")
+
+    if not result.get("baseline_modeled", True):
+        # Too few readings to establish a baseline, so only the fixed
+        # thresholds fired. Say so rather than implying a trend was analysed.
+        score = min(score, 60.0)
+        rationale = (f"Only {result.get('reading_count')} reading(s) supplied, too few to "
+                     f"model a baseline. The verdict rests on fixed ISO/NTN limits alone.")
+
+    return Confidence(score=score, rationale=rationale, abstain=score < CONFIDENCE_FLOOR)
+
+
+def _work_order(equipment_id: str, equipment_type: EquipmentType, result: dict) -> dict:
+    severity = result["severity"]
+    urgent = severity in ("alert", "critical")
+    return {
+        "equipment_id": equipment_id,
+        "equipment_type": equipment_type.value,
+        "action": ("Immediate shutdown and bearing inspection" if severity == "critical"
+                   else "Schedule inspection within 72 hours" if severity == "alert"
+                   else "Continue monitoring, next check in 14 days"),
+        "parts": ["NTN UCFCX05 bearing", "ISO VG68 lubricant"] if urgent else [],
+        "estimated_downtime_hours": 4 if severity == "critical" else 1 if severity == "alert" else 0,
+        "safety_lockout_required": urgent,
+        "regulation": "OSHA 1910.147 + ISO 10816-3",
+    }
+
 
 @app.get("/health", response_model=HealthResponse)
-def health():
+def health() -> HealthResponse:
     return HealthResponse(corpus_version=corpus_version())
 
-@app.get("/api/v1/corpus/version")
-def corpus_ver():
+
+@app.get("/api/v1/corpus/version", dependencies=[Depends(require_api_key)])
+def corpus_ver() -> dict:
     return {"corpus_version": corpus_version(), "free_tier": True}
 
-@app.post("/api/v1/pulse/analyze", response_model=PulseResponse)
-def analyze(req: PulseRequest):
-    t0 = time.time()
-    readings = [r.model_dump() for r in req.readings]
-    engine = get_engine()
-    result = engine.score(readings)
-    citations = citations_for(result)
-    # confidence heuristic
-    score = result["anomaly_score"]
-    if result["severity"] == "critical":
-        conf_score = 92.0
-        rationale = f"Critical: vib {result['metrics']['max_vib']} >4.5 + temp rise {result['metrics']['max_temp_rise']}, strong threshold breach"
-    elif result["severity"] == "alert":
-        conf_score = 84.0
-        rationale = f"Alert: contributing {result['contributing_feature']} exceeds ISO/NTN thresholds"
-    elif result["severity"] == "monitor":
-        conf_score = 68.0
-        rationale = "Monitor: early deviation, below critical but trending"
-    else:
-        conf_score = 45.0
-        rationale = "Normal: within ISO 10816 Zone A/B"
-    confidence = Confidence(score=conf_score, rationale=rationale, abstain=conf_score<70 and result["severity"] in("normal","monitor"))
+
+@app.post("/api/v1/pulse/analyze", response_model=PulseResponse,
+          dependencies=[Depends(require_api_key)])
+def analyze(req: PulseRequest) -> PulseResponse:
+    started = time.perf_counter()
+    result = score_readings([r.model_dump() for r in req.readings])
+    metrics = result["metrics"]
+    severity = result["severity"]
+    driver = result["contributing_feature"].replace("_", " ")
 
     anomaly = AnomalyResult(
         equipment_id=req.equipment_id,
-        is_anomaly=result["severity"] in ("alert","critical"),
+        is_anomaly=severity in ("alert", "critical"),
         anomaly_score=result["anomaly_score"],
         failure_probability_7d=result["failure_probability_7d"],
         predicted_failure_days=result["predicted_failure_days"],
         contributing_feature=result["contributing_feature"],
-        severity=result["severity"],
-        explanation=f"Anomaly {result['anomaly_score']} driven by {result['contributing_feature']} (vib {result['metrics']['max_vib']} mm/s, temp rise {result['metrics']['max_temp_rise']}C, pressure var {result['metrics']['pressure_var']}%). " + ("Immediate lockout per 1910.147 required." if result["severity"] in ("alert","critical") else "Continue monitoring per ISO 10816."),
-        explanation_simple=f"Machine {req.equipment_id} is {result['severity']}. Main issue: {result['contributing_feature']}. " + ("Stop machine and check within 3 days." if result["severity"]=="critical" else "Watch closely, check next week." if result["severity"]=="alert" else "All good, keep running.")
+        severity=severity,
+        explanation=(
+            f"Anomaly score {result['anomaly_score']} is driven by {driver} "
+            f"(vibration {metrics['max_vib']} mm/s, temperature {metrics['max_temp_rise']} C "
+            f"above baseline, pressure variance {metrics['pressure_var']}%). "
+            + ("Lockout under 1910.147 is required before service."
+               if severity in ("alert", "critical")
+               else "Keep to the routine ISO 10816-3 monitoring interval.")
+        ),
+        explanation_simple=(
+            f"{req.equipment_id} is {severity}. The main problem is {driver}. "
+            + ("Stop the machine and inspect it within 3 days." if severity == "critical"
+               else "Book an inspection this week." if severity == "alert"
+               else "Nothing to do, keep it running.")
+        ),
     )
 
-    # work order
-    work_order = {
-        "equipment_id": req.equipment_id,
-        "equipment_type": req.equipment_type.value,
-        "action": "Immediate shutdown + bearing inspection" if result["severity"]=="critical" else "Schedule inspection within 72h" if result["severity"]=="alert" else "Continue monitoring, next check 14 days",
-        "parts": ["NTN UCFCX05 bearing", "ISO VG68 lubricant"] if result["severity"] in ("alert","critical") else [],
-        "estimated_downtime_hours": 4 if result["severity"]=="critical" else 1 if result["severity"]=="alert" else 0,
-        "safety_lockout_required": result["severity"] in ("alert","critical"),
-        "regulation": "OSHA 1910.147 + ISO 10816-3"
-    }
-
-    latency = int((time.time()-t0)*1000)
     return PulseResponse(
         anomaly=anomaly,
-        citations=citations,
-        confidence=confidence,
-        work_order=work_order,
+        readings=req.readings,
+        citations=citations_for(result),
+        confidence=_confidence(result),
+        work_order=_work_order(req.equipment_id, req.equipment_type, result),
         corpus_version=corpus_version(),
-        latency_ms=latency
+        latency_ms=int((time.perf_counter() - started) * 1000),
     )
 
-@app.post("/api/v1/pulse/upload")
-async def upload_csv(file: UploadFile = File(...), equipment_id: str = "BRG-05-A"):
-    content = await file.read()
-    text = content.decode("utf-8")
-    reader = csv.DictReader(io.StringIO(text))
-    readings = []
-    for row in reader:
-        readings.append(SensorReading(
-            timestamp=row["timestamp"],
-            equipment_id=row.get("equipment_id", equipment_id),
-            temperature_c=float(row["temperature_c"]),
-            vibration_mm_s=float(row["vibration_mm_s"]),
-            pressure_bar=float(row.get("pressure_bar", 5.0)),
-            rpm=float(row.get("rpm", 1750)) if row.get("rpm") else None
-        ))
-    req = PulseRequest(equipment_id=equipment_id, readings=readings)
-    return analyze(req)
+
+@app.post("/api/v1/pulse/upload", response_model=PulseResponse,
+          dependencies=[Depends(require_api_key)])
+async def upload_csv(
+    file: UploadFile = File(...),
+    equipment_id: str = "BRG-05-A",
+    equipment_type: EquipmentType = EquipmentType.BEARING,
+) -> PulseResponse:
+    # Bounded read, so an oversized upload is refused rather than buffered.
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds the {MAX_UPLOAD_BYTES // 1024 // 1024}MB limit.",
+        )
+    readings = parse_sensor_csv(raw, default_equipment_id=equipment_id)
+    return analyze(PulseRequest(
+        equipment_id=equipment_id, equipment_type=equipment_type, readings=readings,
+    ))
+
 
 @app.get("/")
-def root():
-    return {"name":"BloomPulse","docs":"/docs","health":"/health","upload":"POST /api/v1/pulse/upload"}
+def root() -> dict:
+    return {
+        "name": "BloomPulse",
+        "docs": "/docs",
+        "health": "/health",
+        "analyze": "POST /api/v1/pulse/analyze",
+        "upload": "POST /api/v1/pulse/upload",
+    }

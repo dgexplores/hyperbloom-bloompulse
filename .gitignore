@@ -14,3 +14,5 @@ dist/
 model/artifacts/
 frontend/.next/
 backend/.venv/
+.vercel
+.env*

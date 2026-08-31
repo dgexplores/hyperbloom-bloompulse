@@ -1,0 +1,665 @@
+/* BloomPulse. Multi-pen strip-chart recorder.
+   Every surface in here is chart stock, printed furniture, or pen ink. */
+
+:root {
+  /* Chart stock and its printed grid */
+  --paper:        #F3F1E7;
+  --paper-deep:   #EAE7DA;
+  --paper-edge:   #DED9C7;
+  --grid-minor:   rgba(196, 84, 53, 0.14);
+  --grid-major:   rgba(196, 84, 53, 0.30);
+
+  /* Printed ink */
+  --ink:          #17150F;
+  --ink-mid:      #4C4634;
+  --ink-soft:     #6E6752;
+  --rule:         #1C190F;
+  --rule-hair:    rgba(28, 25, 15, 0.22);
+
+  /* Recorder pens */
+  --pen-vib:      #C01228;
+  --pen-temp:     #14654A;
+  --pen-press:    #1C4C97;
+
+  /* ISO 10816-3 zones */
+  --zone-ab:      #14654A;
+  --zone-c:       #B07100;
+  --zone-d:       #C01228;
+
+  --furniture: "Archivo Narrow", "Arial Narrow", ui-sans-serif, sans-serif;
+  --prose: "Archivo", ui-sans-serif, system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper-deep);
+  color: var(--ink);
+  font-family: var(--prose);
+  font-size: 15px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, p, ol, ul, figure { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+
+:focus-visible {
+  outline: 2px solid var(--pen-vib);
+  outline-offset: 2px;
+}
+
+/* ---------- The roll ---------------------------------------------------- */
+
+.roll {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--paper);
+  border-left: 1px solid var(--paper-edge);
+  border-right: 1px solid var(--paper-edge);
+  padding: 0 clamp(14px, 3.2vw, 40px);
+  position: relative;
+}
+
+/* ---------- Chart header block ------------------------------------------ */
+
+.header {
+  border-bottom: 2px solid var(--rule);
+  padding: 22px 0 0;
+}
+
+.header-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px 28px;
+  padding-bottom: 14px;
+}
+
+.wordmark {
+  font-family: var(--furniture);
+  font-weight: 700;
+  font-size: clamp(30px, 5.4vw, 46px);
+  line-height: 0.94;
+  letter-spacing: 0.012em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.wordmark .pulse { color: var(--pen-vib); }
+
+.tagline {
+  font-size: 14px;
+  color: var(--ink-mid);
+  max-width: 46ch;
+  margin-top: 7px;
+}
+
+/* The instrument identification plate */
+.plate {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  border: 1px solid var(--rule);
+  font-family: var(--furniture);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.plate div {
+  padding: 5px 11px;
+  border-right: 1px solid var(--rule-hair);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.plate div:nth-child(2n) { border-right: 0; }
+.plate div:nth-last-child(-n+2) { border-bottom: 0; }
+
+.plate dt {
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-size: 10px;
+}
+.plate dd { margin: 1px 0 0; font-weight: 600; }
+
+/* ---------- Load control, a ruled form field on the header --------------- */
+
+.intake {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+
+.field {
+  flex: 1 1 300px;
+  min-width: 0;
+  position: relative;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.field:hover { background: #EFEDE1; }
+
+.field.is-armed {
+  background: #F7EDE4;
+  box-shadow: inset 0 0 0 2px var(--pen-vib);
+}
+
+.field input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.field-label {
+  display: block;
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.field-value {
+  display: block;
+  font-family: var(--furniture);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn {
+  font-family: var(--furniture);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  padding: 11px 18px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, transform 60ms ease;
+}
+
+.btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.42; cursor: not-allowed; }
+
+.btn-run {
+  background: var(--pen-vib);
+  border-color: var(--pen-vib);
+  color: #FFF;
+}
+.btn-run:hover:not(:disabled) { background: #9C0E20; border-color: #9C0E20; color: #FFF; }
+
+/* ---------- Notices ------------------------------------------------------ */
+
+.notice {
+  border: 1px solid var(--pen-vib);
+  background: #FAEBE9;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.notice-tag {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--pen-vib);
+  flex: none;
+}
+
+/* ---------- Chart -------------------------------------------------------- */
+
+.chart-block { padding: 18px 0 0; }
+
+.chart-caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 22px;
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-bottom: 8px;
+}
+
+/* Pen range card, the strip a recorder carries above its chart */
+.pens { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+
+.pen {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--furniture);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-mid);
+  text-transform: none;
+}
+
+.pen::before {
+  content: "";
+  width: 17px;
+  height: 3px;
+  background: var(--pen-color);
+  flex: none;
+}
+
+.pen b {
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.chart-frame {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.chart-frame svg { display: block; width: 100%; height: auto; }
+
+.chart-hint {
+  font-size: 13px;
+  color: var(--ink-mid);
+  padding-top: 8px;
+  max-width: 68ch;
+}
+
+/* Pen traces draw at constant chart speed, the way a real pen does. */
+.trace {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Fallback covers the frame before the pen reports its measured length. */
+  stroke-dasharray: var(--len, 4000);
+  stroke-dashoffset: var(--len, 4000);
+  animation: draw 1150ms linear forwards;
+}
+.trace-2 { animation-delay: 90ms; }
+.trace-3 { animation-delay: 180ms; }
+
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+.flag { opacity: 0; animation: flag-drop 340ms cubic-bezier(0.2, 0.9, 0.3, 1) 1080ms forwards; }
+@keyframes flag-drop {
+  from { opacity: 0; transform: translateY(-7px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Verdict ------------------------------------------------------ */
+
+.results {
+  display: grid;
+  grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+  border-top: 2px solid var(--rule);
+  margin-top: 26px;
+}
+
+.col-left { border-right: 1px solid var(--rule); padding: 20px 26px 30px 0; }
+.col-right { padding: 20px 0 30px 26px; }
+
+.section-rule {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule-hair);
+  padding-bottom: 5px;
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* The verdict stamp */
+.verdict { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+
+.stamp {
+  font-family: var(--furniture);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: clamp(24px, 3.4vw, 34px);
+  line-height: 1;
+  border: 3px solid currentColor;
+  padding: 9px 14px 8px;
+  color: var(--stamp-color);
+  transform: rotate(-1.4deg);
+  flex: none;
+}
+
+.verdict-meta { flex: 1 1 190px; min-width: 0; padding-top: 2px; }
+
+.verdict-id {
+  font-family: var(--furniture);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.verdict-sub { font-size: 14px; color: var(--ink-mid); margin-top: 3px; }
+
+.readout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  border: 1px solid var(--rule);
+  margin-top: 18px;
+}
+
+.readout div {
+  padding: 10px 13px;
+  border-right: 1px solid var(--rule-hair);
+}
+.readout div:last-child { border-right: 0; }
+
+.readout dt {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.readout dd {
+  margin: 3px 0 0;
+  font-family: var(--furniture);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.readout dd small { font-size: 14px; font-weight: 600; color: var(--ink-mid); }
+
+.finding { margin-top: 18px; font-size: 15px; max-width: 66ch; }
+
+.plain {
+  margin-top: 12px;
+  border-left: 3px solid var(--ink);
+  padding: 2px 0 2px 13px;
+  font-size: 15px;
+  max-width: 64ch;
+}
+.plain b {
+  font-family: var(--furniture);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  display: block;
+  color: var(--ink-soft);
+}
+
+.confidence {
+  margin-top: 16px;
+  font-size: 13.5px;
+  color: var(--ink-mid);
+  max-width: 64ch;
+}
+
+.confidence-score {
+  font-family: var(--furniture);
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.06em;
+}
+
+.abstain {
+  display: inline-block;
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  border: 1px solid var(--zone-c);
+  color: var(--zone-c);
+  padding: 1px 7px;
+  margin-right: 7px;
+}
+
+/* ---------- Work order --------------------------------------------------- */
+
+.order { margin-top: 30px; }
+
+.order-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 128px) 1fr;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.order-row:first-of-type { border-top: 1px solid var(--rule-hair); }
+
+.order-row dt {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 9px 12px 9px 0;
+}
+.order-row dd { margin: 0; padding: 9px 0; font-size: 14.5px; }
+
+.lockout {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  background: var(--pen-vib);
+  color: #FFF;
+  padding: 2px 7px;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* ---------- Citations, a regulation reference column --------------------- */
+
+.cite { padding: 15px 0; border-bottom: 1px solid var(--rule-hair); }
+.cite:first-of-type { border-top: 1px solid var(--rule-hair); }
+
+.cite-head { display: flex; gap: 10px; align-items: baseline; }
+
+.cite-no {
+  font-family: var(--furniture);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  flex: none;
+  width: 20px;
+}
+
+.cite-title {
+  font-family: var(--furniture);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.015em;
+  line-height: 1.25;
+}
+
+.cite-span {
+  margin: 7px 0 0 30px;
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--ink-mid);
+  border-left: 1px solid var(--rule-hair);
+  padding-left: 12px;
+  max-width: 54ch;
+}
+
+.cite-foot {
+  margin: 9px 0 0 30px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  align-items: baseline;
+  font-family: var(--furniture);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.cite-foot a {
+  color: var(--pen-press);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.cite-foot a:hover { color: var(--ink); }
+
+.hash { font-size: 10.5px; letter-spacing: 0.02em; opacity: 0.85; }
+
+/* ---------- Empty state -------------------------------------------------- */
+
+.blank { padding: 26px 0 34px; max-width: 60ch; }
+.blank h2 {
+  font-family: var(--furniture);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.blank p { margin-top: 9px; color: var(--ink-mid); font-size: 15px; }
+
+.spec { margin-top: 18px; border-top: 1px solid var(--rule-hair); }
+.spec div {
+  display: grid;
+  grid-template-columns: minmax(104px, 136px) 1fr;
+  border-bottom: 1px solid var(--rule-hair);
+  padding: 7px 0;
+  font-size: 14px;
+}
+.spec dt {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-top: 2px;
+}
+.spec dd { margin: 0; }
+.spec code {
+  font-family: var(--furniture);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* ---------- Footer ------------------------------------------------------- */
+
+.foot {
+  border-top: 2px solid var(--rule);
+  margin-top: 8px;
+  padding: 16px 0 40px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 26px;
+  font-family: var(--furniture);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+}
+
+.foot a { color: var(--ink-mid); }
+
+.disclaimer {
+  max-width: 60ch;
+  font-family: var(--prose);
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+
+/* ---------- Working state ------------------------------------------------ */
+
+.working { position: relative; }
+.working::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: var(--pen-vib);
+  transform-origin: left;
+  animation: sweep 900ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes sweep {
+  0%   { transform: scaleX(0); opacity: 1; }
+  70%  { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+
+/* ---------- Responsive --------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .results { grid-template-columns: minmax(0, 1fr); }
+  .col-left { border-right: 0; border-bottom: 1px solid var(--rule); padding: 20px 0 26px; }
+  .col-right { padding: 20px 0 26px; }
+  .plate { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  body { font-size: 14.5px; }
+  .header-top { gap: 14px; }
+  /* In a column the 300px basis becomes a height, so the drop field grew to
+     fill the row. Let it size to its content instead. */
+  .intake { flex-direction: column; align-items: stretch; }
+  .field { flex: 0 0 auto; }
+  .btn { width: 100%; }
+  /* The chart carries printed 9px furniture. Below this width it scrolls at a
+     legible size rather than shrinking the labels into illegibility. */
+  .chart-frame { overflow-x: auto; }
+  .chart-frame svg { min-width: 680px; }
+  .cite-span, .cite-foot { margin-left: 0; }
+  .order-row, .spec div { grid-template-columns: minmax(0, 1fr); }
+  .order-row dt, .spec dt { padding-bottom: 0; }
+  .order-row dd { padding-top: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace { animation: none; stroke-dashoffset: 0; }
+  .flag { animation: none; opacity: 1; }
+  .working::after { animation: none; transform: scaleX(1); }
+  * { transition-duration: 1ms !important; }
+}
+
+@media print {
+  body { background: #FFF; }
+  .roll { border: 0; max-width: none; }
+  .intake, .btn, .chart-hint { display: none; }
+}

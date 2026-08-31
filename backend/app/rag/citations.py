@@ -1,15 +1,28 @@
 """Offline citation assembler - zero hallucination, hash-tracked"""
-import json, hashlib
+import json
+import logging
+from functools import lru_cache
 from pathlib import Path
 from backend.app.models.schemas import Citation
+from model.anomaly import (
+    PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
+)
 
 MANIFEST_PATH = Path(__file__).resolve().parents[3] / "corpus" / "manifest.json"
 
+FALLBACK_VERSION = "bloompulse-2026.08.31-v1"
+logger = logging.getLogger("bloompulse")
+
+
+@lru_cache(maxsize=1)
 def corpus_version() -> str:
+    """Manifest version, cached. The manifest is git-tracked and immutable
+    at runtime, so one read per process is enough."""
     try:
-        return json.loads(MANIFEST_PATH.read_text())["version"]
-    except:
-        return "bloompulse-2026.08.31-v1"
+        return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["version"]
+    except (OSError, json.JSONDecodeError, KeyError):
+        logger.warning("corpus manifest unreadable at %s, using fallback", MANIFEST_PATH)
+        return FALLBACK_VERSION
 
 VERSION_HASH = "sha256:bloompulse-osha-2024-a1b2c3"
 
@@ -59,6 +72,16 @@ CITATION_DB = {
         locator="Siemens Simotics SD100 p.112",
         version_hash=VERSION_HASH
     ),
+    "within_limits": Citation(
+        id="cite-vib-zone-ab",
+        source_type="standard",
+        title="ISO 10816-3 - Zone A/B, unrestricted operation",
+        span_text="Zone A: vibration of newly commissioned machines. Zone B: machines "
+                  "may be operated indefinitely without restriction.",
+        deep_link="https://www.iso.org/standard/50528.html",
+        locator="ISO 10816-3:2009 Table A.2 - Zones A and B",
+        version_hash=VERSION_HASH
+    ),
     "machine_guarding": Citation(
         id="cite-guarding-212",
         source_type="statute",
@@ -73,15 +96,20 @@ CITATION_DB = {
 def citations_for(anomaly: dict) -> list[Citation]:
     sev = anomaly.get("severity", "normal")
     feat = anomaly.get("contributing_feature", "vibration")
+    metrics = anomaly.get("metrics") or {}
     out = []
-    if anomaly["metrics"]["max_vib"] > 4.5:
+    if metrics.get("max_vib", 0) > VIB_ALERT:
         out.append(CITATION_DB["vibration_alert"])
-    elif anomaly["metrics"]["max_vib"] > 2.8:
+    elif metrics.get("max_vib", 0) > VIB_NORMAL:
         out.append(CITATION_DB["vibration_monitor"])
-    if anomaly["metrics"]["max_temp_rise"] > 15:
+    if metrics.get("max_temp_rise", 0) > TEMP_RISE_THRESHOLD:
         out.append(CITATION_DB["temp_rise"])
-    if anomaly["metrics"]["pressure_var"] > 12:
+    if metrics.get("pressure_var", 0) > PRESSURE_VARIANCE_ALERT:
         out.append(CITATION_DB["pressure_seal"])
+    # An all-clear is a claim too, so ground it in the standard that permits
+    # continued operation rather than returning an empty citation list.
+    if not out and sev == "normal":
+        out.append(CITATION_DB["within_limits"])
     # lockout always for alert/critical
     if sev in ("alert", "critical"):
         out.append(CITATION_DB["lockout"])
