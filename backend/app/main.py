@@ -7,7 +7,19 @@ from backend.app.rag.citations import citations_for, corpus_version
 from model.anomaly import get_engine
 
 app = FastAPI(title="BloomPulse - Industrial Sensor Sentinel", version="0.1.0-pulse")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Auth: optional API_KEY env - if set, require Bearer header; else FREE tier open (HyperBloom demo)
+import os
+API_KEY = os.getenv("API_KEY", "")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
+
+@app.middleware("http")
+async def auth_middleware(request, call_next):
+    if API_KEY and request.url.path.startswith("/api/"):
+        auth = request.headers.get("authorization", "")
+        if auth != f"Bearer {API_KEY}" and request.headers.get("x-api-key") != API_KEY:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized - missing or invalid API key"})
+    return await call_next(request)
 
 @app.get("/health", response_model=HealthResponse)
 def health():

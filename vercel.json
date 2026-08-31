@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.py", "use": "@vercel/python", "config": { "maxLambdaSize": "15mb", "runtime": "python3.11" } },
+    { "src": "frontend/package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "api/index.py" },
+    { "src": "/assets/(.*)", "dest": "frontend/dist/assets/$1" },
+    { "src": "/sample_(.*).csv", "dest": "frontend/dist/sample_$1.csv" },
+    { "src": "/(.*)", "dest": "frontend/dist/index.html" }
+  ],
+  "env": {
+    "VITE_API_URL": ""
+  }
+}

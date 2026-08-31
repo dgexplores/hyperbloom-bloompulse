@@ -3,7 +3,9 @@ import {createRoot} from 'react-dom/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API = (import.meta.env.VITE_API_URL as string) || (import.meta.env.PROD ? '' : 'http://localhost:8000')
+const AUTH_HEADER = (import.meta.env.VITE_API_KEY as string) ? { 'Authorization': `Bearer ${import.meta.env.VITE_API_KEY}` } : {}
+function authHeaders(extra: Record<string,string>={}){ return {...AUTH_HEADER, ...extra} }
 
 // Apple spring presets - WWDC Designing Fluid Interfaces
 const spring = {
@@ -61,7 +63,7 @@ function App(){
   async function analyzePayload(payload:any){
     setError(null); setLoading(true)
     try{
-      const r=await fetch(`${API}/api/v1/pulse/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+      const r=await fetch(`${API}/api/v1/pulse/analyze`,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload)})
       if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,200)) }
       const j=await r.json()
       // interruptible: motion will animate from presentation value, no jump
@@ -77,7 +79,7 @@ function App(){
     setFileName(file.name); setLoading(true); setError(null)
     const fd=new FormData(); fd.append('file',file)
     try{
-      const res=await fetch(`${API}/api/v1/pulse/upload?equipment_id=BRG-05-A`,{method:'POST',body:fd})
+      const res=await fetch(`${API}/api/v1/pulse/upload?equipment_id=BRG-05-A`,{method:'POST', headers: authHeaders() as any, body:fd})
       if(!res.ok) throw new Error(await res.text())
       const j=await res.json()
       setResult(j)
