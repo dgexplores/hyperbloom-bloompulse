@@ -1,46 +1,21 @@
 {
   "version": "bloompulse-2026.08.31-v1",
-  "corpus_hash": "sha256:bloompulse-osha-2024-a1b2c3",
-  "generated_at": "2026-08-31T00:00:00Z",
+  "corpus_hash": "sha256:2b271d978f8cbcd61c095630d17d2b172b474bd782cd1478f962aab8a2333588",
+  "generated_at": "2026-08-31T16:16:48+00:00",
   "sources": [
     {
-      "doc_id": "osha-1910-147",
-      "title": "OSHA 29 CFR 1910.147 - Lockout/Tagout",
-      "jurisdiction": "us_federal",
-      "source_type": "statute",
-      "path": "corpus/sources/osha_1910_maintenance.md",
-      "sha256": "placeholder-hash-osha147",
-      "effective_date": "2024-01-01"
-    },
-    {
-      "doc_id": "osha-1910-212",
-      "title": "OSHA 1910.212 - Machine Guarding",
-      "jurisdiction": "us_federal",
-      "source_type": "statute",
-      "path": "corpus/sources/osha_1910_maintenance.md",
-      "sha256": "placeholder-hash-osha212",
-      "effective_date": "2024-01-01"
-    },
-    {
-      "doc_id": "iso-10816",
-      "title": "ISO 10816-3 Vibration Severity",
-      "jurisdiction": "international",
-      "source_type": "standard",
-      "path": "corpus/sources/osha_1910_maintenance.md",
-      "sha256": "placeholder-hash-iso10816",
-      "effective_date": "2009-01-01"
-    },
-    {
-      "doc_id": "ntn-manual-ucfc",
-      "title": "NTN Bearing UCFCX05 Manual",
-      "jurisdiction": "manufacturer",
-      "source_type": "manual",
+      "doc_id": "manufacturer-manual",
       "path": "corpus/sources/manufacturer_manual.md",
-      "sha256": "placeholder-hash-ntn",
-      "effective_date": "2023-01-01"
+      "sha256": "d82232eeed9ee7a95d46c27195ed0ed939f6ee1a1374b0727d5e0cbe393500f1",
+      "bytes": 1208
+    },
+    {
+      "doc_id": "osha-1910-maintenance",
+      "path": "corpus/sources/osha_1910_maintenance.md",
+      "sha256": "2738fa8b84317102d507f797b71e7aa632a42a081b947e5e056c1dd8fccaf135",
+      "bytes": 2272
     }
   ],
-  "chunk_count": 12,
-  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "retrieval": "offline extractive, spans parsed verbatim from the files above",
   "free_tier": true
 }

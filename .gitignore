@@ -15,4 +15,8 @@ model/artifacts/
 frontend/.next/
 backend/.venv/
 .vercel
-.env*
+.env
+.env.local
+.env.*.local
+!.env.example
+.pytest_cache/

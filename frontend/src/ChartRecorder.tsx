@@ -33,8 +33,22 @@ const pct = (value: number, min: number, max: number) =>
 
 const toY = (fraction: number) => PLOT.y + PLOT.h - fraction * PLOT.h;
 
-const toX = (index: number, count: number) =>
-  count <= 1 ? PLOT.x + PLOT.w / 2 : PLOT.x + (index / (count - 1)) * PLOT.w;
+/* Positions come from elapsed time where the timestamps parse, so a gap in
+   the record shows as a gap. Unparseable stamps fall back to even spacing. */
+function timeScale(readings: Reading[]): (i: number) => number {
+  const count = readings.length;
+  if (count <= 1) return () => PLOT.x + PLOT.w / 2;
+
+  const stamps = readings.map((r) => new Date(r.timestamp).getTime());
+  const usable =
+    stamps.every((t) => Number.isFinite(t)) &&
+    stamps.every((t, i) => i === 0 || t >= stamps[i - 1]) &&
+    stamps[count - 1] > stamps[0];
+
+  if (!usable) return (i) => PLOT.x + (i / (count - 1)) * PLOT.w;
+  const span = stamps[count - 1] - stamps[0];
+  return (i) => PLOT.x + ((stamps[i] - stamps[0]) / span) * PLOT.w;
+}
 
 /* pathLength normalisation does not reliably drive stroke-dasharray, so each
    pen measures its own trace on mount and writes the real length back. */
@@ -42,13 +56,30 @@ function measurePen(node: SVGPathElement | null) {
   if (node) node.style.setProperty("--len", String(node.getTotalLength()));
 }
 
-function clockOf(timestamp: string): string {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/* A series spanning more than a day repeats HH:MM labels, so it gets the date
+   instead. That is what made the sample chart show 13:30 four times. */
+function clockOf(timestamp: string, withDate: boolean): string {
   const parsed = new Date(timestamp);
-  if (!Number.isNaN(parsed.getTime())) {
-    return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+  if (Number.isNaN(parsed.getTime())) {
+    const match = timestamp.match(/(\d{2}:\d{2})/);
+    return match ? match[1] : "";
   }
-  const match = timestamp.match(/(\d{2}:\d{2})/);
-  return match ? match[1] : "";
+  const hh = String(parsed.getHours()).padStart(2, "0");
+  const mm = String(parsed.getMinutes()).padStart(2, "0");
+  if (!withDate) return `${hh}:${mm}`;
+  return `${parsed.getDate()} ${MONTHS[parsed.getMonth()]} ${hh}:${mm}`;
+}
+
+const DAY_MS = 86_400_000;
+
+function spansMoreThanADay(readings: Reading[]): boolean {
+  if (readings.length < 2) return false;
+  const first = new Date(readings[0].timestamp).getTime();
+  const last = new Date(readings[readings.length - 1].timestamp).getTime();
+  return Number.isFinite(first) && Number.isFinite(last) && last - first > DAY_MS;
 }
 
 function valueOf(reading: Reading, key: string): number | null {
@@ -79,9 +110,11 @@ export default function ChartRecorder({
   const loaded = count > 0;
   const event = loaded ? eventIndex(readings) : null;
 
+  const xAt = timeScale(readings);
+  const withDate = spansMoreThanADay(readings);
   const minorCols = 50;
   const minorRows = 20;
-  const tickEvery = Math.max(1, Math.ceil(count / 8));
+  const tickEvery = Math.max(1, Math.ceil(count / (withDate ? 5 : 8)));
 
   return (
     <svg
@@ -206,7 +239,7 @@ export default function ChartRecorder({
                 const value = valueOf(r, pen.key);
                 return value === null
                   ? null
-                  : `${toX(i, count).toFixed(2)},${toY(pct(value, pen.min, pen.max)).toFixed(2)}`;
+                  : `${xAt(i).toFixed(2)},${toY(pct(value, pen.min, pen.max)).toFixed(2)}`;
               })
               .filter((p): p is string => p !== null);
             if (points.length === 0) return null;
@@ -235,16 +268,16 @@ export default function ChartRecorder({
       {loaded && event !== null && (
         <g className="flag" key={`${chartKey}-flag`}>
           <line
-            x1={toX(event, count)} y1={PLOT.y}
-            x2={toX(event, count)} y2={PLOT.y + PLOT.h}
+            x1={xAt(event)} y1={PLOT.y}
+            x2={xAt(event)} y2={PLOT.y + PLOT.h}
             stroke="var(--ink)" strokeWidth={1} strokeDasharray="2 3" opacity={0.55}
           />
           <path
-            d={`M${toX(event, count)},${PLOT.y + 1} l 46,0 l -6,9 l 6,9 l -46,0 z`}
+            d={`M${xAt(event)},${PLOT.y + 1} l 46,0 l -6,9 l 6,9 l -46,0 z`}
             fill="var(--ink)"
           />
           <text
-            x={toX(event, count) + 6} y={PLOT.y + 14}
+            x={xAt(event) + 6} y={PLOT.y + 14}
             fontFamily="var(--furniture)" fontSize={9.5} fontWeight={700}
             letterSpacing="0.09em" fill="var(--paper)"
           >
@@ -259,11 +292,11 @@ export default function ChartRecorder({
           {readings.map((r, i) =>
             i % tickEvery === 0 || i === count - 1 ? (
               <text
-                key={i} x={toX(i, count)} y={PLOT.y + PLOT.h + 15}
+                key={i} x={xAt(i)} y={PLOT.y + PLOT.h + 15}
                 textAnchor={i === 0 ? "start" : i === count - 1 ? "end" : "middle"}
                 letterSpacing="0.06em"
               >
-                {clockOf(r.timestamp)}
+                {clockOf(r.timestamp, withDate)}
               </text>
             ) : null,
           )}

@@ -144,3 +144,104 @@ def test_analyze_rejects_a_payload_with_no_readings():
     response = client.post("/api/v1/pulse/analyze",
                            json={"equipment_id": "B", "readings": []})
     assert response.status_code == 422
+
+
+# --- corpus provenance -----------------------------------------------------
+
+def test_manifest_digests_match_the_files_on_disk():
+    """Provenance is the product's core claim, so a corpus edit without a
+    manifest rebuild has to fail loudly."""
+    import hashlib
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    manifest = json.loads((root / "corpus" / "manifest.json").read_text())
+    assert manifest["sources"], "manifest lists no sources"
+    for source in manifest["sources"]:
+        path = root / source["path"]
+        assert path.exists(), source["path"]
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        assert actual == source["sha256"], (
+            f"{source['path']} changed. Re-run: PYTHONPATH=. python corpus/build_manifest.py"
+        )
+
+
+def test_every_span_is_verbatim_from_a_corpus_file():
+    """The anti-hallucination guarantee. A span that is not in the corpus was
+    written by someone rather than quoted."""
+    from backend.app.rag.citations import SOURCES_DIR, passages
+
+    haystack = " ".join(
+        " ".join(p.read_text(encoding="utf-8").split())
+        for p in sorted(SOURCES_DIR.glob("*.md"))
+    )
+    collected = passages()
+    assert len(collected) >= 6, "corpus parsed suspiciously few passages"
+    for citation in collected.values():
+        assert " ".join(citation.span_text.split()) in haystack, citation.id
+
+
+def test_every_backing_passage_named_by_the_rules_exists():
+    from backend.app.rag.citations import BACKING, passages
+
+    missing = [key for key, heading in BACKING.items() if heading not in passages()]
+    assert not missing, f"corpus is missing passages for: {missing}"
+
+
+def test_citations_explain_why_they_were_attached():
+    body = upload(open("model/sample_anomaly.csv", "rb").read()).json()
+    for citation in body["citations"]:
+        assert citation["applies_to"], citation["id"]
+
+
+def test_demo_written_excerpts_are_labelled_synthetic():
+    """Excerpts authored for the demo must never read as published text."""
+    from backend.app.rag.citations import passages
+
+    collected = passages()
+    assert collected["Bearing Unit Model: NTN UCFCX05"].synthetic is True
+    assert collected["Sec 1910.147 - Control of Hazardous Energy (Lockout/Tagout)"].synthetic is False
+
+
+# --- confidence ------------------------------------------------------------
+
+def test_a_breached_limit_is_not_downgraded_by_a_short_series():
+    """A published limit is a measurement. It stands whether or not there were
+    enough readings to model a baseline."""
+    response = client.post("/api/v1/pulse/analyze", json={
+        "equipment_id": "B",
+        "readings": [{"timestamp": "2026-08-20T08:00:00", "equipment_id": "B",
+                      "temperature_c": 55.0, "vibration_mm_s": 6.4, "pressure_bar": 5.0}],
+    })
+    body = response.json()
+    assert body["anomaly"]["severity"] == "critical"
+    assert body["confidence"]["score"] >= 70
+    assert body["confidence"]["abstain"] is False
+
+
+def test_a_flat_series_with_nothing_wrong_abstains():
+    flat = [{"timestamp": f"2026-08-20T{i:02d}:00:00", "equipment_id": "B",
+             "temperature_c": 55.0, "vibration_mm_s": 2.0, "pressure_bar": 5.0}
+            for i in range(20)]
+    body = client.post("/api/v1/pulse/analyze",
+                       json={"equipment_id": "B", "readings": flat}).json()
+    assert body["anomaly"]["severity"] == "normal"
+    assert body["confidence"]["abstain"] is True
+
+
+def test_rate_limiter_rejects_a_flood():
+    import backend.app.main as api
+
+    original, api.RATE_LIMIT = api.RATE_LIMIT, 3
+    api._hits.clear()
+    try:
+        payload = {"equipment_id": "B", "readings": [
+            {"timestamp": "2026-08-20T08:00:00", "equipment_id": "B",
+             "temperature_c": 55.0, "vibration_mm_s": 2.0, "pressure_bar": 5.0}]}
+        codes = [client.post("/api/v1/pulse/analyze", json=payload).status_code
+                 for _ in range(5)]
+        assert 429 in codes
+    finally:
+        api.RATE_LIMIT = original
+        api._hits.clear()

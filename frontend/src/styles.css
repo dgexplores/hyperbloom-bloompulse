@@ -155,6 +155,11 @@ ol, ul { padding: 0; list-style: none; }
 
 .field:hover { background: #EFEDE1; }
 
+.field:focus-within {
+  outline: 2px solid var(--pen-vib);
+  outline-offset: 2px;
+}
+
 .field.is-armed {
   background: #F7EDE4;
   box-shadow: inset 0 0 0 2px var(--pen-vib);
@@ -412,10 +417,13 @@ ol, ul { padding: 0; list-style: none; }
 
 .finding { margin-top: 18px; font-size: 15px; max-width: 66ch; }
 
+/* An operator's note written onto the chart, ruled like every other field on
+   the sheet rather than flagged with a coloured bar. */
 .plain {
-  margin-top: 12px;
-  border-left: 3px solid var(--ink);
-  padding: 2px 0 2px 13px;
+  margin-top: 14px;
+  border: 1px solid var(--rule);
+  background: var(--paper-deep);
+  padding: 10px 13px 11px;
   font-size: 15px;
   max-width: 64ch;
 }
@@ -426,6 +434,7 @@ ol, ul { padding: 0; list-style: none; }
   text-transform: uppercase;
   display: block;
   color: var(--ink-soft);
+  margin-bottom: 3px;
 }
 
 .confidence {
@@ -523,6 +532,24 @@ ol, ul { padding: 0; list-style: none; }
   border-left: 1px solid var(--rule-hair);
   padding-left: 12px;
   max-width: 54ch;
+}
+
+.cite-why {
+  margin: 8px 0 0 30px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  max-width: 54ch;
+}
+
+.synthetic {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  border: 1px solid var(--zone-c);
+  color: var(--zone-c);
+  padding: 1px 6px;
 }
 
 .cite-foot {
@@ -645,7 +672,25 @@ ol, ul { padding: 0; list-style: none; }
      legible size rather than shrinking the labels into illegibility. */
   .chart-frame { overflow-x: auto; }
   .chart-frame svg { min-width: 680px; }
-  .cite-span, .cite-foot { margin-left: 0; }
+  .cite-span, .cite-why {
+  margin: 8px 0 0 30px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  max-width: 54ch;
+}
+
+.synthetic {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  border: 1px solid var(--zone-c);
+  color: var(--zone-c);
+  padding: 1px 6px;
+}
+
+.cite-foot { margin-left: 0; }
   .order-row, .spec div { grid-template-columns: minmax(0, 1fr); }
   .order-row dt, .spec dt { padding-bottom: 0; }
   .order-row dd { padding-top: 2px; }

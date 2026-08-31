@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Tests
+        run: PYTHONPATH=. pytest tests/ -q
+      - name: Eval
+        run: PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 python eval/run_eval.py
+      - name: Vercel function requirements match the root
+        run: |
+          diff requirements.txt api/requirements.txt             || (echo "::error::api/requirements.txt has drifted from requirements.txt" && exit 1)
+
+      - name: Corpus manifest is current
+        run: |
+          PYTHONPATH=. python corpus/build_manifest.py
+          git diff --exit-code corpus/manifest.json \
+            || (echo "::error::corpus/manifest.json is stale. Run: PYTHONPATH=. python corpus/build_manifest.py" && exit 1)
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Typecheck and build
+        run: npm run build

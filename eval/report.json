@@ -1,17 +1,69 @@
 {
-  "anomaly": {
-    "equipment_id": "BRG-05-A",
-    "is_anomaly": true,
-    "anomaly_score": 0.82,
-    "failure_probability_7d": 0.828,
-    "predicted_failure_days": 3,
-    "contributing_feature": "temperature_rise",
-    "severity": "critical",
-    "explanation": "Anomaly 0.82 driven by temperature_rise (vib 5.88 mm/s, temp rise 23.88C, pressure var 10.06%). Immediate lockout per 1910.147 required.",
-    "explanation_simple": "Machine BRG-05-A is critical. Main issue: temperature_rise. Stop machine and check within 3 days."
-  },
-  "citations": 3,
-  "faithfulness": 1.0,
-  "citation_precision": 1.0,
-  "latency_ms": 77
+  "corpus_version": "bloompulse-2026.08.31-v1",
+  "fixtures": 7,
+  "span_fidelity": 1.0,
+  "spans_checked": 15,
+  "citation_coverage": 1.0,
+  "severity_accuracy": 1.0,
+  "abstention_rate": 0.2857,
+  "latency_ms_p50": 43.9,
+  "latency_ms_p95": 45.0,
+  "detail": [
+    {
+      "fixture": "healthy steady",
+      "expected": "normal",
+      "actual": "normal",
+      "match": true,
+      "citations": 1,
+      "confidence": 88.0
+    },
+    {
+      "fixture": "healthy with noise",
+      "expected": "normal",
+      "actual": "normal",
+      "match": true,
+      "citations": 1,
+      "confidence": 88.0
+    },
+    {
+      "fixture": "stuck flat sensor",
+      "expected": "normal",
+      "actual": "normal",
+      "match": true,
+      "citations": 1,
+      "confidence": 60.0
+    },
+    {
+      "fixture": "zone C creep",
+      "expected": "monitor",
+      "actual": "monitor",
+      "match": true,
+      "citations": 1,
+      "confidence": 62.0
+    },
+    {
+      "fixture": "zone D vibration",
+      "expected": "critical",
+      "actual": "critical",
+      "match": true,
+      "citations": 3,
+      "confidence": 85.0
+    },
+    {
+      "fixture": "progressive bearing",
+      "expected": "critical",
+      "actual": "critical",
+      "match": true,
+      "citations": 4,
+      "confidence": 92.0
+    },
+    {
+      "fixture": "thermal runaway",
+      "expected": "critical",
+      "actual": "critical",
+      "match": true,
+      "citations": 4,
+      "confidence": 92.0
+    }
+  ]
 }

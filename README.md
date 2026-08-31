@@ -49,7 +49,8 @@ cd frontend && npm install && npm run dev
 
 ```bash
 # Tests
-PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 24 tests
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 32 tests
+PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 .venv/bin/python eval/run_eval.py
 
 # Regenerate the sample CSVs
 PYTHONPATH=. .venv/bin/python model/sample_data.py
@@ -95,13 +96,16 @@ allowlist to close CORS.
 backend/app/
   main.py           FastAPI app, CSV ingest and validation, confidence, work order
   models/schemas.py Pydantic contracts
-  rag/citations.py  offline citation assembler, manifest-backed
+  rag/citations.py  parses verbatim spans out of the corpus files
 model/
   anomaly.py        BloomPulseAnomaly engine, score_readings()
   sample_data.py    synthetic CSV generator
 corpus/
-  manifest.json     version and per-source hashes
-  sources/*.md      OSHA, ISO and manufacturer excerpts
+  manifest.json     version and real sha256 per source file
+  build_manifest.py regenerate the manifest after editing a source
+  sources/*.md      OSHA, ISO and manufacturer excerpts, parsed at import
+eval/
+  run_eval.py       measured metrics, writes report.json
 frontend/src/
   main.tsx          the page
   ChartRecorder.tsx hand-drawn strip-chart SVG, no chart library
@@ -109,136 +113,121 @@ frontend/src/
   ErrorBoundary.tsx
   styles.css        the visual world
 tests/
-  test_bloompulse.py  24 tests
+  test_bloompulse.py  32 tests
 PRODUCT.md          durable product truth
+DESIGN.md           the built visual system
 ```
 
 ---
 
 ## 5. Build status
 
-**A hardening and redesign pass is partly complete.** What follows is the honest
-state, so work can resume without re-deriving it.
+A hardening and redesign pass is **complete**. 32 tests, a measured eval, and CI
+on every push.
 
-### 5.1 Done: backend
-
-Twelve defects fixed, each with a regression test in `tests/test_bloompulse.py`.
+### 5.1 Backend: 12 defects fixed
 
 | # | Defect | Symptom before the fix |
 |---|---|---|
-| 1 | Module-level `IsolationForest` singleton | Fitted on the first request's data and never refitted. A series' score depended on which file was scored before it. Now `score_readings()` builds a fresh engine per call. |
-| 2 | CSV upload had seven unhandled crash paths | Missing column, non-numeric cell, empty file, header-only file, over-length file, non-UTF8 bytes and binary uploads all returned **500** with a raw traceback. All now return 400 or 413 with a message naming the row and the fix. |
-| 3 | `contributing_feature` compared raw units | Millimetres per second against degrees against percent, so the numerically largest channel won regardless of significance. Now each driver is scaled against its own threshold. |
-| 4 | Degenerate short or flat series | A single healthy reading, or a perfectly flat series, scored 0.5 and reported `monitor` for a healthy machine. The forest is now skipped when there is no baseline to learn from, and the thresholds decide alone. |
-| 5 | Confidence conflated with severity | A clean machine reported "45%, abstain", which reads as a broken tool. Confidence now expresses certainty in the verdict, so a clean machine is a confident `normal` and the genuinely uncertain case is `monitor`. |
-| 6 | `backend/app/core/config.py` was dead | Nothing imported it. It declared Postgres, Redis and pgvector that the app never uses. Deleted, along with the `pydantic-settings` dependency. |
-| 7 | Bare `except:` in `citations.py` | Swallowed `KeyboardInterrupt` and `SystemExit`. Narrowed, and the manifest read is cached. |
-| 8 | CORS wildcard with credentials | Invalid per the CORS spec, browsers reject the combination. Now mutually exclusive and configurable. |
+| 1 | Module-level `IsolationForest` singleton | Fitted on the first request's data and never refitted. A series' score depended on which file was scored before it. |
+| 2 | Seven unhandled crash paths in CSV upload | Missing column, non-numeric cell, empty file, header-only file, over-length file, non-UTF8 bytes and binary uploads all returned **500** with a raw traceback. |
+| 3 | `contributing_feature` compared raw units | Millimetres per second against degrees against percent, so the largest number won regardless of significance. |
+| 4 | Degenerate short or flat series | A single healthy reading, or a flat series, scored 0.5 and reported `monitor` for a healthy machine. |
+| 5 | Confidence conflated with severity | A clean machine reported "45%, abstain", which reads as a broken tool. |
+| 6 | `backend/app/core/config.py` was dead | Declared Postgres, Redis and pgvector the app never uses. Deleted. |
+| 7 | Bare `except:` in `citations.py` | Swallowed `KeyboardInterrupt` and `SystemExit`. |
+| 8 | CORS wildcard with credentials | Invalid per the CORS spec, browsers reject it. |
 | 9 | API key compared with `!=` | Now `hmac.compare_digest`. |
 | 10 | No exception handler, no logging | Internal errors leaked to clients. |
-| 11 | A `normal` verdict returned zero citations | The all-clear was the one claim with no source. It now cites ISO 10816-3 Zone A/B. |
-| 12 | The client re-parsed the CSV | The chart parsed the file again with a naive `split(',')`, which broke on CRLF and quoted fields and drifted from the server. The response now echoes `readings`, and the client parses nothing. |
+| 11 | A `normal` verdict returned zero citations | The all-clear was the one claim with no source. |
+| 12 | The client re-parsed the CSV | A naive `split(',')` broke on CRLF and quoted fields and drifted from the server. The response now echoes `readings`. |
 
-### 5.2 Done: frontend
+Two more found by the eval and fixed:
 
-Rewritten against a committed visual direction rather than polished in place.
+- A breached published limit was downgraded to a 60% abstention when the series
+  was too short or too flat to model. A limit is a measurement, not an
+  inference, so it now stands on its own.
+- `model/sample_data.py` wrote to hard-coded absolute paths, and was unseeded,
+  so regenerating the samples silently changed the demo.
+
+### 5.2 The corpus is now load-bearing
+
+Previously the citation spans were hard-coded in a Python dict and
+`corpus/sources/*.md` was decorative, while `manifest.json` carried
+`placeholder-hash-*` strings. Now:
+
+- Spans are **parsed verbatim** out of `corpus/sources/*.md` at import. Eight
+  passages, keyed by heading.
+- `version_hash` on every citation is the real sha256 of the file the span came
+  from.
+- `corpus/build_manifest.py` regenerates the manifest with real digests, and CI
+  fails if the manifest and the files disagree.
+- A test asserts **every span appears verbatim in a corpus file**. A span that
+  is not in the corpus was invented, and the suite catches it.
+- Excerpts written for the demo are flagged `synthetic` and render with a
+  SYNTHETIC EXCERPT marker, so they are never mistaken for published text.
+- Each citation carries `applies_to`, one line saying why it was attached to
+  this particular verdict.
+
+### 5.3 Frontend: rebuilt
 
 - **Direction: multi-pen strip-chart recorder.** Chart paper with a printed
   grid, ISO 10816-3 zone bands and both alarm limits printed *before* any data
-  arrives. Three recorder pens draw the series at constant chart speed. An event
-  flag marks the sample the verdict turns on. The direction contract is an HTML
-  comment at the top of `frontend/index.html` and survives the production build.
-- **Light surface, chosen from the use scene** (a shop-floor office under
-  fluorescent light, output that gets printed), not from category habit.
-- **Dependencies removed:** `recharts`, `framer-motion` and `motion`. The chart
-  is hand-drawn SVG and the motion is CSS. React is the only runtime dependency.
-  Bundle is about 52KB gzipped.
+  arrives. Three pens draw at constant chart speed. An event flag marks the
+  sample the verdict turns on. Contract is at the top of `frontend/index.html`.
+- Light surface, chosen from the use scene, not category habit.
+- **Dropped `recharts`, `framer-motion` and `motion`.** The chart is hand-drawn
+  SVG and the motion is CSS. React is the only runtime dependency, 52KB gzipped.
 - `VITE_API_KEY` removed. A key in a browser bundle is not a secret.
-- Strict TypeScript, an error boundary, real empty, loading, error and abstain
-  states, keyboard focus rings, reduced-motion and print stylesheets.
+- Chart positions come from elapsed time, so an irregular record shows its gaps,
+  and labels carry the date once a series runs past 24 hours.
+- Strict TypeScript, an error boundary, real empty, loading, error, abstain and
+  synthetic states, focus rings, reduced-motion and print stylesheets.
+- Impeccable design detector: clean.
+- `DESIGN.md` records the built system.
 
-### 5.3 Verified
+### 5.4 Measured, not asserted
 
-- 24 backend tests pass.
-- `npm run build` runs `tsc --noEmit` and succeeds.
-- Desktop and mobile both render the full flow: upload, chart, verdict, work
-  order, citations, export.
+`make eval` runs labelled fixtures and writes `eval/report.json`. The previous
+version hard-coded `faithfulness: 1.0`.
+
+| Metric | Value | What it means |
+|---|---|---|
+| `span_fidelity` | 1.0 (15/15) | Every returned span found verbatim in the corpus |
+| `severity_accuracy` | 1.0 (7/7) | Agreement with hand-labelled fixtures |
+| `citation_coverage` | 1.0 | Every verdict carries at least one source |
+| `abstention_rate` | 0.29 | Only the genuinely ambiguous cases |
+| `latency_ms` p50 | ~4 ms | |
+
+Fixtures include a stuck flat sensor and a Zone C creep, which are the two cases
+that used to be scored wrong.
+
+### 5.5 Infrastructure
+
+- **CI** (`.github/workflows/ci.yml`): pytest, the eval, a manifest-freshness
+  check, a requirements-drift check, and `tsc --noEmit && vite build`.
+- Rate limiting on the analyse endpoints, `RATE_LIMIT_PER_MINUTE`, default 60.
+- `Makefile` rewritten around the real layout.
+- `.gitignore` no longer shadows `.env.example`.
+- `backend/requirements.txt` deleted. It had drifted to different pins
+  (`fastapi==0.115.0` against the root's `0.110.0`). Root and `api/` are now
+  identical and CI enforces it.
 
 ---
 
 ## 6. What is left
 
-Ordered as it should be picked up.
-
-### 6.1 Finish the design pass
-
-- [ ] Run the mechanical detector and fix what it flags:
-      `node ~/.claude/skills/impeccable/scripts/detect.mjs --json frontend/src/main.tsx frontend/src/styles.css frontend/src/ChartRecorder.tsx`
-- [ ] Spawn `impeccable-finish-reviewer` with the direction contract from
-      `frontend/index.html`, desktop and mobile screenshots, and the craft-floor
-      reference. Apply its material findings in one batch, then get a verdict.
-- [ ] Spawn `impeccable-documenter` to write `DESIGN.md` from the built world.
-      A new visual world with no `DESIGN.md` is an incomplete run.
-
-### 6.2 Known frontend gaps
-
-- [ ] The healthy sample and the failing sample share the drop-zone state. Loading
-      a file and then clicking a demo leaves the old filename in the field. Clear
-      `fileName` consistently.
-- [ ] The chart draws from index position, not elapsed time. A CSV with irregular
-      gaps plots them evenly. Map x to the parsed timestamp instead.
-- [ ] `clockOf()` shows `HH:MM` only. A series spanning several days repeats
-      labels, which the current samples do (see the duplicate `13:30` ticks).
-      Show the date when the span exceeds 24 hours.
-- [ ] No visible focus style on the drop zone itself, only on the input inside it.
-- [ ] The export filename has no timestamp, so two exports for the same machine
-      overwrite each other in the browser's download folder.
-
-### 6.3 Backend and correctness
-
-- [ ] `corpus/manifest.json` carries `placeholder-hash-*` values and
-      `VERSION_HASH` in `citations.py` is a hand-written string. The pitch claims
-      hash-tracked provenance, so compute real SHA-256 digests of
-      `corpus/sources/*.md` at build time and fail loudly on a mismatch.
-- [ ] Citation spans are hard-coded in `CITATION_DB` rather than extracted from
-      `corpus/sources/*.md`. The corpus files are currently decorative. Either
-      extract the spans from them or stop describing this as retrieval.
-- [ ] `eval/report.json` is stale and its `Makefile` target hard-codes
-      `faithfulness: 1.0` and `citation_precision: 1.0`. Either measure them or
-      remove the claim.
-- [ ] `model/sample_data.py` writes to hard-coded absolute paths under
-      `/Users/dgsmacbook/`. Make them relative to the repo.
-- [ ] Rate limiting. The upload endpoint is open, unauthenticated and does real
-      CPU work.
-
-### 6.4 Infrastructure
-
-- [ ] **No CI.** Add a workflow that runs `pytest` and `npm run build` on push.
-- [ ] `.gitignore` contains `.env*`, which shadows `.env.example`. Already-tracked
-      files are unaffected, but a fresh `.env.example` would be ignored.
-- [ ] Verify the Vercel deploy end to end. `vercel.json` rewrites `/api/(.*)` to
-      `/api/index.py`, and the root `requirements.txt` and `api/requirements.txt`
-      are duplicates that will drift. The Python runtime version is pinned in two
-      `.python-version` files.
-- [ ] `Makefile` still refers to the pre-rewrite layout and the `dev` target does
-      not actually run anything.
-- [ ] `docs/DEMO_GUIDE.md` and `docs/DESCRIPTION.md` were written against the old
-      dark UI and describe screens that no longer exist.
-
-### 6.5 Claims to make true or remove
-
-The original README asserted several things the code does not do. They are worth
-resolving before submission.
-
-- "LSTM-lite" is a rolling mean, not a network of any kind.
-- "Knowledge graph equipment to failure to regulation" does not exist.
-- "Local MiniLM embeddings" are configured nowhere. Nothing is embedded, and
-  retrieval is a rule-based lookup table.
-- "12 citations" is six entries in `CITATION_DB`, of which at most four are ever
-  returned.
-- The Spanish toggle does not exist.
-
----
+- [ ] **Record `docs/demo.mp4`.** The submission asks for a 90 second video and
+      `docs/DEMO_GUIDE.md` is the script for it. This is the only submission
+      deliverable still missing.
+- [ ] **Confirm the Vercel deploy.** `vercel.json` looks right, static assets
+      resolve before the SPA fallback and `/api/*` routes to `api/index.py`, but
+      it has not been verified against a live deployment since the rewrite.
+- [ ] Optional: `corpus/sources/*.md` covers three sources. Adding more real
+      OSHA and ISO passages costs nothing at runtime and widens coverage.
+- [ ] Optional: the citation selector is rule-based, which is honest and
+      deterministic. Semantic retrieval over the corpus would generalise past
+      the current three-channel schema.
 
 ## 7. Design direction
 

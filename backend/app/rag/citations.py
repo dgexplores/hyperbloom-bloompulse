@@ -1,124 +1,169 @@
-"""Offline citation assembler - zero hallucination, hash-tracked"""
+"""Citation assembler.
+
+Spans are parsed out of corpus/sources/*.md at import and are never rewritten,
+so every claim the API makes can be traced to an exact line of an exact file at
+an exact sha256. Nothing is generated, and no model is called.
+"""
+from __future__ import annotations
+
+import hashlib
 import json
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
+
 from backend.app.models.schemas import Citation
 from model.anomaly import (
     PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
 )
 
-MANIFEST_PATH = Path(__file__).resolve().parents[3] / "corpus" / "manifest.json"
+CORPUS_DIR = Path(__file__).resolve().parents[3] / "corpus"
+SOURCES_DIR = CORPUS_DIR / "sources"
+MANIFEST_PATH = CORPUS_DIR / "manifest.json"
+FALLBACK_VERSION = "bloompulse-unversioned"
 
-FALLBACK_VERSION = "bloompulse-2026.08.31-v1"
+MAX_CITATIONS = 4
+
 logger = logging.getLogger("bloompulse")
 
 
 @lru_cache(maxsize=1)
 def corpus_version() -> str:
-    """Manifest version, cached. The manifest is git-tracked and immutable
-    at runtime, so one read per process is enough."""
     try:
         return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["version"]
     except (OSError, json.JSONDecodeError, KeyError):
         logger.warning("corpus manifest unreadable at %s, using fallback", MANIFEST_PATH)
         return FALLBACK_VERSION
 
-VERSION_HASH = "sha256:bloompulse-osha-2024-a1b2c3"
 
-CITATION_DB = {
-    "vibration_alert": Citation(
-        id="cite-vib-10816",
-        source_type="standard",
-        title="ISO 10816-3 - Vibration Severity Zone D",
-        span_text="Group 2 medium machines: Zone D (>4.5 mm/s) requires immediate shutdown.",
-        deep_link="https://www.iso.org/standard/50528.html",
-        locator="ISO 10816-3:2009 Table A.2 - Zone D",
-        version_hash=VERSION_HASH
-    ),
-    "vibration_monitor": Citation(
-        id="cite-vib-monitor",
-        source_type="standard",
-        title="ISO 10816-3 - Zone B/C boundary",
-        span_text="Zone B/C boundary 2.8 mm/s - transition to monitor, plan inspection.",
-        deep_link="https://www.iso.org/standard/50528.html",
-        locator="ISO 10816-3 Table A.2 - 2.8 mm/s",
-        version_hash=VERSION_HASH
-    ),
-    "temp_rise": Citation(
-        id="cite-temp-ntn",
-        source_type="manual",
-        title="NTN Bearing Manual Sec 4.2",
-        span_text="If temperature rise >15C within 24h, schedule inspection within 72 hours - indicates inner race spalling.",
-        deep_link="https://www.ntnglobal.com/en/products/manual",
-        locator="NTN Manual Sec 4.2 - diagnostics",
-        version_hash=VERSION_HASH
-    ),
-    "lockout": Citation(
-        id="cite-lockout-147",
-        source_type="statute",
-        title="OSHA 29 CFR 1910.147 - Lockout/Tagout",
-        span_text="The employer shall establish a program and utilize procedures for affixing appropriate lockout devices to energy isolating mechanisms...",
-        deep_link="https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.147",
-        locator="Sec 1910.147(c)(4) - p.2 para 1",
-        version_hash=VERSION_HASH
-    ),
-    "pressure_seal": Citation(
-        id="cite-pressure-siemens",
-        source_type="manual",
-        title="Siemens Simotics SD100 p.112",
-        span_text="Pressure variance >12% indicates seal degradation, replace seal within 48h. Combined anomaly score >0.72 indicates 85% probability of failure within 7 days.",
-        deep_link="https://assets.siemens.com",
-        locator="Siemens Simotics SD100 p.112",
-        version_hash=VERSION_HASH
-    ),
-    "within_limits": Citation(
-        id="cite-vib-zone-ab",
-        source_type="standard",
-        title="ISO 10816-3 - Zone A/B, unrestricted operation",
-        span_text="Zone A: vibration of newly commissioned machines. Zone B: machines "
-                  "may be operated indefinitely without restriction.",
-        deep_link="https://www.iso.org/standard/50528.html",
-        locator="ISO 10816-3:2009 Table A.2 - Zones A and B",
-        version_hash=VERSION_HASH
-    ),
-    "machine_guarding": Citation(
-        id="cite-guarding-212",
-        source_type="statute",
-        title="OSHA 29 CFR 1910.212 - Machine Guarding",
-        span_text="One or more methods of machine guarding shall be provided to protect the operator from hazards such as rotating parts, flying chips.",
-        deep_link="https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.212",
-        locator="Sec 1910.212(a)(1)",
-        version_hash=VERSION_HASH
-    ),
+def file_digest(path: Path) -> str:
+    """sha256 of a corpus file, used as the version hash on every span."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _source_type(heading: str, filename: str) -> str:
+    lowered = heading.lower()
+    if "directive" in lowered or lowered.startswith("osha directive"):
+        return "directive"
+    if lowered.startswith("sec 1910"):
+        return "statute"
+    if "iso " in lowered or lowered.startswith("iso"):
+        return "standard"
+    return "manual" if "manual" in filename else "standard"
+
+
+def _parse_document(path: Path) -> dict[str, Citation]:
+    """Pull every `## heading` section with a blockquote into one Citation.
+
+    The expected shape, which the corpus files already use:
+
+        ## Some heading
+        > "the verbatim span"
+        **Locator:** where in the document
+        **Source:** https://example.org
+    """
+    digest = file_digest(path)
+    text = path.read_text(encoding="utf-8")
+    found: dict[str, Citation] = {}
+
+    # Split on level-2 headings, keeping the heading with its body.
+    sections = re.split(r"^##\s+", text, flags=re.MULTILINE)[1:]
+    for section in sections:
+        lines = section.splitlines()
+        heading = lines[0].strip()
+
+        quote_lines = [
+            line.lstrip("> ").strip()
+            for line in lines[1:]
+            if line.lstrip().startswith(">")
+        ]
+        if not quote_lines:
+            continue
+        span = " ".join(quote_lines).strip().strip('"').strip()
+
+        locator_match = re.search(r"^\*\*Locator:\*\*\s*(.+)$", section, re.MULTILINE)
+        source_match = re.search(r"(https?://\S+)", section)
+
+        # A source line that flags itself as written for the demo is carried
+        # through to the response rather than quietly dropped.
+        synthetic = "synthetic" in section.lower()
+
+        slug = re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")[:48]
+        found[heading] = Citation(
+            id=f"cite-{slug}",
+            source_type=_source_type(heading, path.name),  # type: ignore[arg-type]
+            title=heading,
+            span_text=span,
+            deep_link=source_match.group(1).rstrip(".,") if source_match else "",
+            locator=locator_match.group(1).strip() if locator_match else heading,
+            version_hash=f"sha256:{digest[:16]}",
+            synthetic=synthetic,
+        )
+    return found
+
+
+@lru_cache(maxsize=1)
+def passages() -> dict[str, Citation]:
+    """Every parsed span, keyed by its heading. Read once per process."""
+    collected: dict[str, Citation] = {}
+    for path in sorted(SOURCES_DIR.glob("*.md")):
+        collected.update(_parse_document(path))
+    if not collected:
+        logger.error("no corpus passages parsed from %s", SOURCES_DIR)
+    return collected
+
+
+# Heading in the corpus that backs each kind of claim. A missing heading is a
+# corpus error, and the test suite fails on it rather than the API going quiet.
+BACKING = {
+    "vibration": "ISO 10816-3 - Vibration Severity (Industrial)",
+    "temperature": "Bearing Unit Model: NTN UCFCX05",
+    "pressure": "Siemens Simotics Motor - Predictive Thresholds",
+    "lockout": "Sec 1910.147 - Control of Hazardous Energy (Lockout/Tagout)",
+    "guarding": "Sec 1910.212 - General Requirements for All Machines",
+    "thresholds": "OSHA Directive CPL 02-00-147 - Vibration Thresholds (Predictive Maintenance)",
 }
 
+
+def _cite(key: str, applies_to: str) -> Citation | None:
+    passage = passages().get(BACKING[key])
+    if passage is None:
+        logger.error("corpus is missing the passage backing %r", key)
+        return None
+    return passage.model_copy(update={"applies_to": applies_to})
+
+
 def citations_for(anomaly: dict) -> list[Citation]:
-    sev = anomaly.get("severity", "normal")
-    feat = anomaly.get("contributing_feature", "vibration")
+    """Attach the passages that actually govern this verdict."""
+    severity = anomaly.get("severity", "normal")
     metrics = anomaly.get("metrics") or {}
-    out = []
-    if metrics.get("max_vib", 0) > VIB_ALERT:
-        out.append(CITATION_DB["vibration_alert"])
-    elif metrics.get("max_vib", 0) > VIB_NORMAL:
-        out.append(CITATION_DB["vibration_monitor"])
-    if metrics.get("max_temp_rise", 0) > TEMP_RISE_THRESHOLD:
-        out.append(CITATION_DB["temp_rise"])
-    if metrics.get("pressure_var", 0) > PRESSURE_VARIANCE_ALERT:
-        out.append(CITATION_DB["pressure_seal"])
-    # An all-clear is a claim too, so ground it in the standard that permits
-    # continued operation rather than returning an empty citation list.
-    if not out and sev == "normal":
-        out.append(CITATION_DB["within_limits"])
-    # lockout always for alert/critical
-    if sev in ("alert", "critical"):
-        out.append(CITATION_DB["lockout"])
-        if feat == "vibration":
-            out.append(CITATION_DB["machine_guarding"])
-    # dedup
-    seen=set()
-    uniq=[]
-    for c in out:
-        if c.id not in seen:
-            uniq.append(c); seen.add(c.id)
-    return uniq[:4]
+    vib = metrics.get("max_vib", 0.0)
+    temp_rise = metrics.get("max_temp_rise", 0.0)
+    pressure_var = metrics.get("pressure_var", 0.0)
+
+    out: list[Citation | None] = []
+
+    if vib > VIB_ALERT:
+        out.append(_cite("vibration", f"Vibration {vib} mm/s is above the {VIB_ALERT} mm/s Zone C/D boundary."))
+    elif vib > VIB_NORMAL:
+        out.append(_cite("vibration", f"Vibration {vib} mm/s is above the {VIB_NORMAL} mm/s Zone B/C boundary."))
+    else:
+        out.append(_cite("vibration", f"Vibration {vib} mm/s sits inside Zone A/B, where operation is unrestricted."))
+
+    if temp_rise > TEMP_RISE_THRESHOLD:
+        out.append(_cite("temperature", f"Temperature is {temp_rise} C above baseline, past the {TEMP_RISE_THRESHOLD} C inspection trigger."))
+    if pressure_var > PRESSURE_VARIANCE_ALERT:
+        out.append(_cite("pressure", f"Pressure variance {pressure_var}% is past the {PRESSURE_VARIANCE_ALERT}% seal-replacement threshold."))
+
+    if severity in ("alert", "critical"):
+        out.append(_cite("lockout", "Servicing this machine requires energy isolation before work begins."))
+        out.append(_cite("guarding", "Rotating parts are the hazard class driving this verdict."))
+
+    seen: set[str] = set()
+    unique: list[Citation] = []
+    for citation in out:
+        if citation is not None and citation.id not in seen:
+            unique.append(citation)
+            seen.add(citation.id)
+    return unique[:MAX_CITATIONS]

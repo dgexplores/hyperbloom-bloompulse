@@ -20,6 +20,8 @@ export interface Citation {
   deep_link: string;
   locator: string;
   version_hash: string;
+  applies_to: string | null;
+  synthetic: boolean;
 }
 
 export interface Anomaly {

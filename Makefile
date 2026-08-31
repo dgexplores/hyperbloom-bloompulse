@@ -1,24 +1,31 @@
-.PHONY: dev backend frontend install eval sample clean
+.PHONY: install backend frontend test eval sample corpus clean
+
+VENV := .venv
+PY := $(VENV)/bin/python
 
 install:
-	pip install -r backend/requirements.txt
+	uv venv --python 3.12 $(VENV)
+	uv pip install --python $(PY) -r requirements-dev.txt
 	cd frontend && npm install
 
 backend:
-	PYTHONPATH=. python -m uvicorn backend.app.main:app --reload --port 8000
+	PYTHONPATH=. $(PY) -m uvicorn backend.app.main:app --reload --port 8000
 
 frontend:
 	cd frontend && npm run dev
 
-dev:
-	@echo "Run backend + frontend in two terminals: make backend & make frontend"
-
-sample:
-	python model/sample_data.py
+test:
+	PYTHONPATH=. $(PY) -m pytest tests/ -q
 
 eval:
-	mkdir -p eval
-	PYTHONPATH=. python -c "from fastapi.testclient import TestClient; from backend.app.main import app; c=TestClient(app); import json, csv; r=c.post('/api/v1/pulse/upload', files={'file': open('model/sample_anomaly.csv','rb')}); open('eval/report.json','w').write(json.dumps({'anomaly': r.json()['anomaly'], 'citations': len(r.json()['citations']), 'faithfulness': 1.0, 'citation_precision': 1.0, 'latency_ms': r.json()['latency_ms']}, indent=2)); print(open('eval/report.json').read())"
+	PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 $(PY) eval/run_eval.py
+
+sample:
+	PYTHONPATH=. $(PY) model/sample_data.py
+
+corpus:
+	PYTHONPATH=. $(PY) corpus/build_manifest.py
 
 clean:
-	rm -rf frontend/dist frontend/node_modules eval/report.json model/artifacts
+	rm -rf frontend/dist frontend/node_modules $(VENV) .pytest_cache
+	find . -name __pycache__ -type d -prune -exec rm -rf {} +

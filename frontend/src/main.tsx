@@ -46,11 +46,11 @@ function App() {
   const run = useCallback(async (job: () => Promise<PulseResponse>, label: string) => {
     setBusy(true);
     setError(null);
+    setSource(label);
     try {
       const response = await job();
       runCount.current += 1;
       setResult(response);
-      setSource(label);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analysis failed.");
       setResult(null);
@@ -124,7 +124,8 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `workorder-${work_order.equipment_id}-${anomaly.severity}.md`;
+    const at = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    link.download = `workorder-${work_order.equipment_id}-${anomaly.severity}-${at}.md`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [result, source]);
@@ -221,7 +222,7 @@ function App() {
             disabled={busy}
             onClick={() => {
               setFileName("");
-              void run(() => analyze(demoSeries(false), "BRG-05-A"), "healthy demo series");
+              void run(() => analyze(demoSeries(false), "BRG-05-A"), "healthy demo series (synthetic)");
             }}
           >
             Healthy sample
@@ -232,7 +233,7 @@ function App() {
             disabled={busy}
             onClick={() => {
               setFileName("");
-              void run(() => analyze(demoSeries(true), "BRG-05-A"), "failing demo series");
+              void run(() => analyze(demoSeries(true), "BRG-05-A"), "failing demo series (synthetic)");
             }}
           >
             {busy ? "Reading" : "Failing sample"}
@@ -371,8 +372,16 @@ function App() {
                     <span className="cite-title">{citation.title}</span>
                   </p>
                   <blockquote className="cite-span">{citation.span_text}</blockquote>
+                  {citation.applies_to && (
+                    <p className="cite-why">{citation.applies_to}</p>
+                  )}
                   <p className="cite-foot">
                     <span>{citation.locator}</span>
+                    {citation.synthetic && (
+                      <span className="synthetic" title="Written for this demo, not taken from a published document">
+                        Synthetic excerpt
+                      </span>
+                    )}
                     <span className="hash">{citation.version_hash}</span>
                     <a href={citation.deep_link} target="_blank" rel="noreferrer noopener">
                       Verify at source

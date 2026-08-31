@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import time
+from collections import deque
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +30,13 @@ MAX_ROWS = 500
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 REQUIRED_COLUMNS = {"timestamp", "temperature_c", "vibration_mm_s"}
 
+# Simple fixed-window limiter. The analyse endpoints are unauthenticated and do
+# real CPU work, so an open deployment needs some backstop.
+# ponytail: in-process counters, fine for one worker. Move to Redis if this
+# ever runs multi-process behind a load balancer.
+RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+_hits: dict[str, deque[float]] = {}
+
 API_KEY = os.getenv("API_KEY", "")
 # Comma-separated allowlist. Default open, because the demo is public and
 # carries no credentials or user data.
@@ -45,6 +53,23 @@ app.add_middleware(
     # spec, and browsers reject the combination outright.
     allow_credentials="*" not in CORS_ORIGINS,
 )
+
+
+def rate_limit(request: Request) -> None:
+    if RATE_LIMIT <= 0:
+        return
+    client = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    seen = _hits.setdefault(client, deque())
+    while seen and now - seen[0] > 60:
+        seen.popleft()
+    if len(seen) >= RATE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"More than {RATE_LIMIT} requests in a minute. Wait and retry.",
+            headers={"Retry-After": "60"},
+        )
+    seen.append(now)
 
 
 def require_api_key(request: Request) -> None:
@@ -184,12 +209,14 @@ def _confidence(result: dict) -> Confidence:
                      f"Zone B/C boundary, and temperature is within "
                      f"{m['max_temp_rise']} C of baseline. Comfortably inside Zone A/B.")
 
-    if not result.get("baseline_modeled", True):
-        # Too few readings to establish a baseline, so only the fixed
-        # thresholds fired. Say so rather than implying a trend was analysed.
+    # A breached published limit is a measurement, not an inference, so it
+    # stands on its own even when the series was too short or too flat to
+    # model. The cap below applies only where the model was doing the work.
+    if not result.get("baseline_modeled", True) and not drivers:
         score = min(score, 60.0)
-        rationale = (f"Only {result.get('reading_count')} reading(s) supplied, too few to "
-                     f"model a baseline. The verdict rests on fixed ISO/NTN limits alone.")
+        rationale = (f"{result.get('reading_count')} reading(s) with no usable variation, "
+                     f"so no baseline could be modelled. Nothing here crosses a published "
+                     f"limit either, which is why this is not a verdict.")
 
     return Confidence(score=score, rationale=rationale, abstain=score < CONFIDENCE_FLOOR)
 
@@ -215,13 +242,13 @@ def health() -> HealthResponse:
     return HealthResponse(corpus_version=corpus_version())
 
 
-@app.get("/api/v1/corpus/version", dependencies=[Depends(require_api_key)])
+@app.get("/api/v1/corpus/version", dependencies=[Depends(require_api_key), Depends(rate_limit)])
 def corpus_ver() -> dict:
     return {"corpus_version": corpus_version(), "free_tier": True}
 
 
 @app.post("/api/v1/pulse/analyze", response_model=PulseResponse,
-          dependencies=[Depends(require_api_key)])
+          dependencies=[Depends(require_api_key), Depends(rate_limit)])
 def analyze(req: PulseRequest) -> PulseResponse:
     started = time.perf_counter()
     result = score_readings([r.model_dump() for r in req.readings])
@@ -265,7 +292,7 @@ def analyze(req: PulseRequest) -> PulseResponse:
 
 
 @app.post("/api/v1/pulse/upload", response_model=PulseResponse,
-          dependencies=[Depends(require_api_key)])
+          dependencies=[Depends(require_api_key), Depends(rate_limit)])
 async def upload_csv(
     file: UploadFile = File(...),
     equipment_id: str = "BRG-05-A",

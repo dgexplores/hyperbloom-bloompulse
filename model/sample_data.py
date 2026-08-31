@@ -1,6 +1,9 @@
 """Generate synthetic industrial sensor CSVs for demo - no hardware needed"""
-import csv, random, os
+import csv, os, random
 from datetime import datetime, timedelta
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
 
 def generate_normal(equipment_id="BRG-05-A", n=30):
     base = datetime(2026,8,20,8,0,0)
@@ -41,9 +44,10 @@ def write_csv(path, rows):
     return path
 
 if __name__ == "__main__":
-    out = "/Users/dgsmacbook/hyperbloom-bloompulse/model/sample_normal.csv"
-    write_csv(out, generate_normal())
-    print(f"wrote {out}")
-    out2 = "/Users/dgsmacbook/hyperbloom-bloompulse/model/sample_anomaly.csv"
-    write_csv(out2, generate_anomaly())
-    print(f"wrote {out2}")
+    # Seeded, so regenerating the samples does not silently change the demo.
+    random.seed(20260831)
+    for name, rows in (("sample_normal.csv", generate_normal()),
+                       ("sample_anomaly.csv", generate_anomaly())):
+        for directory in (HERE, HERE.parent / "frontend" / "public"):
+            if directory.exists():
+                print(f"wrote {write_csv(str(directory / name), rows)}")

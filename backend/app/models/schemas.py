@@ -15,10 +15,18 @@ class Citation(BaseModel):
     id: str
     source_type: Literal["statute", "standard", "manual", "directive"]
     title: str
+    # Verbatim, parsed straight out of corpus/sources/*.md. Never rewritten.
     span_text: str
     deep_link: str
     locator: str
+    # sha256 of the corpus file this span was read from, so a claim can be
+    # traced to an exact revision of the source document.
     version_hash: str
+    # Why this passage was attached to this particular verdict.
+    applies_to: str | None = None
+    # True where the excerpt was written for the demo rather than taken from a
+    # published document. Surfaced in the UI so it is never mistaken for real.
+    synthetic: bool = False
 
 class Confidence(BaseModel):
     score: float = Field(ge=0, le=100)
