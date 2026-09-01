@@ -6,8 +6,8 @@
   "citation_coverage": 1.0,
   "severity_accuracy": 1.0,
   "abstention_rate": 0.2857,
-  "latency_ms_p50": 43.9,
-  "latency_ms_p95": 45.0,
+  "latency_ms_p50": 37.5,
+  "latency_ms_p95": 38.8,
   "detail": [
     {
       "fixture": "healthy steady",

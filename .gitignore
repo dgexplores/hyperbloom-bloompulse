@@ -3,6 +3,7 @@ __pycache__/
 *.so
 .env
 .venv/
+.venv*/
 venv/
 .DS_Store
 node_modules/
@@ -14,6 +15,7 @@ dist/
 model/artifacts/
 frontend/.next/
 backend/.venv/
+.venv*/
 .vercel
 .env
 .env.local

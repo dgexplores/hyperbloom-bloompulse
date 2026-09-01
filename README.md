@@ -5,6 +5,8 @@ passage of the standard it came from.**
 
 No sensors to install, no gateway, no vendor contract, no API key.
 
+**Live: https://hyperbloom-bloompulse.vercel.app**
+
 Built for HyperBloom Hacks 2026. MIT licensed.
 
 ---
@@ -30,8 +32,8 @@ rather than paraphrasing one.
 
 ## 2. Quick start
 
-Python 3.12 is required. `scikit-learn` and `numpy` at the pinned versions have
-no wheels for 3.13 or 3.14.
+Python 3.12 or newer. The pinned versions all publish wheels for 3.12, 3.13
+and 3.14, and the suite is run against 3.12 and 3.14.
 
 ```bash
 # Backend
@@ -49,7 +51,7 @@ cd frontend && npm install && npm run dev
 
 ```bash
 # Tests
-PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 32 tests
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 43 tests
 PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 .venv/bin/python eval/run_eval.py
 
 # Regenerate the sample CSVs
@@ -73,7 +75,10 @@ curl -X POST "http://localhost:8000/api/v1/pulse/upload?equipment_id=BRG-05-A" \
 | `POST /api/v1/pulse/analyze` | `{equipment_id, equipment_type, readings[]}` | `PulseResponse` |
 | `POST /api/v1/pulse/upload?equipment_id=` | multipart `file=<csv>` | `PulseResponse` |
 | `GET /api/v1/corpus/version` | | corpus version |
-| `GET /health` | | status, version, corpus version |
+| `GET /api/v1/health`, `GET /health` | | status, version, corpus version |
+
+In production only `/api/*` reaches Python, because everything else rewrites to
+the SPA. Use `/api/v1/health` for probes.
 
 `PulseResponse` carries `anomaly`, `readings` (the exact series that was
 scored), `citations[]`, `confidence`, `work_order`, `corpus_version`,
@@ -99,6 +104,7 @@ backend/app/
   rag/citations.py  parses verbatim spans out of the corpus files
 model/
   anomaly.py        BloomPulseAnomaly engine, score_readings()
+  iforest.py        Isolation Forest on numpy, no scikit-learn at runtime
   sample_data.py    synthetic CSV generator
 corpus/
   manifest.json     version and real sha256 per source file
@@ -113,7 +119,8 @@ frontend/src/
   ErrorBoundary.tsx
   styles.css        the visual world
 tests/
-  test_bloompulse.py  32 tests
+  test_bloompulse.py  API, ingest, corpus and confidence
+  test_iforest.py     the forest checked against scikit-learn
 PRODUCT.md          durable product truth
 DESIGN.md           the built visual system
 ```
@@ -141,6 +148,7 @@ on every push.
 | 10 | No exception handler, no logging | Internal errors leaked to clients. |
 | 11 | A `normal` verdict returned zero citations | The all-clear was the one claim with no source. |
 | 12 | The client re-parsed the CSV | A naive `split(',')` broke on CRLF and quoted fields and drifted from the server. The response now echoes `readings`. |
+| 13 | Verdict copy contradicted itself | A healthy machine read "The main problem is vibration. Nothing to do, keep it running", and a temperature drop rendered as "within -0.162 C of baseline". |
 
 Two more found by the eval and fixed:
 
@@ -197,7 +205,7 @@ version hard-coded `faithfulness: 1.0`.
 | `severity_accuracy` | 1.0 (7/7) | Agreement with hand-labelled fixtures |
 | `citation_coverage` | 1.0 | Every verdict carries at least one source |
 | `abstention_rate` | 0.29 | Only the genuinely ambiguous cases |
-| `latency_ms` p50 | ~4 ms | |
+| `latency_ms` p50 | ~40 ms | About 55 to 90ms on the deployed function |
 
 Fixtures include a stuck flat sensor and a Zone C creep, which are the two cases
 that used to be scored wrong.
@@ -215,14 +223,44 @@ that used to be scored wrong.
 
 ---
 
+### 5.6 Deployment
+
+Live at **https://hyperbloom-bloompulse.vercel.app**. Frontend is static, the
+API is one Python serverless function at `api/index.py`.
+
+Four things had to be solved to get it deployed, all of them recorded here
+because they are not obvious and cost real time:
+
+1. **Vercel selected CPython 3.14** and ignored the root `.python-version`, so
+   `pydantic-core` had no wheel and tried to compile from Rust source. Every
+   runtime pin is now on a version that publishes wheels for 3.12 through 3.14,
+   so the build no longer depends on which interpreter Vercel picks.
+2. **Local virtualenvs were being uploaded**, 177MB each, taking the bundle to
+   545MB. `.vercelignore` now excludes them.
+3. **scikit-learn does not fit.** It pulls in scipy, and the three together are
+   about 200MB unpacked, which left the function at 258MB against a 225MB
+   limit. The Isolation Forest is now implemented on numpy in
+   `model/iforest.py`, roughly 110 lines, and `tests/test_iforest.py` checks it
+   against scikit-learn's implementation: identical normalising constant, at
+   least 90% overlap on the top-k most anomalous points, and score correlation
+   above 0.9. scikit-learn stays as a dev dependency purely for that comparison.
+   Dropping it also made the endpoint faster, from about 155ms to about 40ms.
+4. **`.vercelignore` excluded `*.md`**, which silently excluded
+   `corpus/sources/*.md`. The corpus *is* those files, so the API returned
+   verdicts with zero citations while looking otherwise healthy. Worth
+   remembering: the deploy was green and the endpoint returned 200.
+
+Verified against the live deployment: verdict, all four citations with real
+digests, the 400 path for a malformed CSV, sample CSV downloads, SPA deep
+links, and mobile layout.
+
+---
+
 ## 6. What is left
 
 - [ ] **Record `docs/demo.mp4`.** The submission asks for a 90 second video and
       `docs/DEMO_GUIDE.md` is the script for it. This is the only submission
       deliverable still missing.
-- [ ] **Confirm the Vercel deploy.** `vercel.json` looks right, static assets
-      resolve before the SPA fallback and `/api/*` routes to `api/index.py`, but
-      it has not been verified against a live deployment since the rewrite.
 - [ ] Optional: `corpus/sources/*.md` covers three sources. Adding more real
       OSHA and ISO passages costs nothing at runtime and widens coverage.
 - [ ] Optional: the citation selector is rule-based, which is honest and

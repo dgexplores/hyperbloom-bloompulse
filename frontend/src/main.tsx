@@ -244,9 +244,22 @@ function App() {
       <section className="chart-block" aria-label="Sensor chart">
         <div className="chart-caption">
           <div className="pens">{penCard}</div>
-          <span>
-            {source ? `Chart: ${source}` : "Chart: none"} · Limits pre-printed from ISO 10816-3
-          </span>
+          <span>{source ? `Chart: ${source}` : "Chart: none"}</span>
+        </div>
+        <div className="zone-key">
+          <span className="zone-key-label">ISO 10816-3 vibration zones</span>
+          {[
+            { band: "A/B", limit: "under 2.8 mm/s", meaning: "Run without restriction", color: "var(--zone-ab)" },
+            { band: "C", limit: "2.8 to 4.5", meaning: "Unsatisfactory, plan an inspection", color: "var(--zone-c)" },
+            { band: "D", limit: "over 4.5", meaning: "Shut down, damage is likely", color: "var(--zone-d)" },
+          ].map((zone) => (
+            <span className="zone" key={zone.band}>
+              <i style={{ ["--zone-color" as string]: zone.color }} aria-hidden="true" />
+              <b>{zone.band}</b>
+              <span className="zone-limit">{zone.limit}</span>
+              <span className="zone-meaning">{zone.meaning}</span>
+            </span>
+          ))}
         </div>
         <div className="chart-frame">
           <ErrorBoundary label="The chart">
@@ -254,18 +267,38 @@ function App() {
           </ErrorBoundary>
         </div>
         <p className="chart-hint">
-          The two red rules are printed on the paper before any data arrives: the
-          2.8 mm/s Zone B/C boundary and the 4.5 mm/s Zone D shutdown limit. The
-          flag marks the sample the verdict below turns on.
+          Each pen has its own range, printed above, and all three share the same
+          0 to 100 percent grid. The two red rules are on the paper before any
+          data arrives. The flag marks the sample the verdict turns on.
+          <span className="scroll-note"> Drag the chart sideways to see the whole run.</span>
         </p>
       </section>
+
+      <p className="sr-only" role="status" aria-live="polite">
+        {busy
+          ? "Analysing the chart."
+          : result
+            ? `${result.anomaly.severity} verdict for ${result.anomaly.equipment_id}. ${result.anomaly.explanation_simple ?? ""} Confidence ${result.confidence.score} percent. ${result.citations.length} citation${result.citations.length === 1 ? "" : "s"}.`
+            : ""}
+      </p>
 
       {result && stamp ? (
         <div className="results">
           <section className="col-left" aria-label="Condition">
             <h2 className="section-rule">
               <span>Condition</span>
-              <span>{result.anomaly.equipment_id}</span>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  setResult(null);
+                  setSource("");
+                  setFileName("");
+                  setError(null);
+                }}
+              >
+                Clear and load another
+              </button>
             </h2>
 
             <div className="verdict">
@@ -298,12 +331,12 @@ function App() {
               <div>
                 <dt>Window</dt>
                 <dd>
-                  {result.anomaly.predicted_failure_days ?? "—"}
+                  {result.anomaly.predicted_failure_days ?? "None"}
                   {result.anomaly.predicted_failure_days != null && <small> days</small>}
                 </dd>
               </div>
               <div>
-                <dt>Driver</dt>
+                <dt>{result.anomaly.is_anomaly ? "Driver" : "Watch"}</dt>
                 <dd style={{ fontSize: 16, paddingTop: 5 }}>
                   {result.anomaly.contributing_feature.replace(/_/g, " ")}
                 </dd>
@@ -394,11 +427,37 @@ function App() {
         </div>
       ) : (
         <section className="blank" aria-label="How to load a chart">
-          <h2>The paper is loaded. The pens are waiting.</h2>
+          <h2>Start here</h2>
           <p>
-            Drop a CSV above, or run one of the two synthetic samples. Nothing is
-            uploaded anywhere but the analyser, and no account or key is involved.
+            The chart above is blank paper. Nothing has been analysed yet, and the
+            red limit lines are already printed on it so you can see what your
+            machine is about to be judged against.
           </p>
+          <ol className="steps">
+            <li>
+              <b>1</b>
+              <span>
+                Press <strong>Failing sample</strong> to watch a bearing degrade,
+                or <strong>Healthy sample</strong> to see a clean run. Both are
+                synthetic and need no file.
+              </span>
+            </li>
+            <li>
+              <b>2</b>
+              <span>
+                Or drop your own CSV on the field above. Any export from a PLC or
+                condition monitor with a timestamp, a temperature and a vibration
+                column will work.
+              </span>
+            </li>
+            <li>
+              <b>3</b>
+              <span>
+                Read the verdict, then check the passage of the standard it was
+                based on. Every claim links back to its source.
+              </span>
+            </li>
+          </ol>
           <dl className="spec">
             <div>
               <dt>Required</dt>

@@ -168,6 +168,15 @@ def parse_sensor_csv(raw: bytes, default_equipment_id: str) -> list[SensorReadin
 CONFIDENCE_FLOOR = 70.0  # below this the verdict is reported as an abstention
 
 
+def _describe_rise(delta: float) -> str:
+    """Temperature change against baseline, worded for its direction."""
+    if delta > 0.5:
+        return f"{delta} C above baseline"
+    if delta < -0.5:
+        return f"{abs(delta)} C below baseline"
+    return "level with baseline"
+
+
 def _confidence(result: dict) -> Confidence:
     """Certainty in the verdict, not the severity of it.
 
@@ -206,8 +215,8 @@ def _confidence(result: dict) -> Confidence:
     else:
         score = 88.0
         rationale = (f"Vibration peaks at {m['max_vib']} mm/s against a {VIB_NORMAL} mm/s "
-                     f"Zone B/C boundary, and temperature is within "
-                     f"{m['max_temp_rise']} C of baseline. Comfortably inside Zone A/B.")
+                     f"Zone B/C boundary, and temperature sits "
+                     f"{_describe_rise(m['max_temp_rise'])}. Comfortably inside Zone A/B.")
 
     # A breached published limit is a measurement, not an inference, so it
     # stands on its own even when the series was too short or too flat to
@@ -237,7 +246,11 @@ def _work_order(equipment_id: str, equipment_type: EquipmentType, result: dict) 
     }
 
 
+# Both paths exist on purpose. /health is the conventional one and works when
+# the app is run directly, while the deployed SPA rewrite sends everything that
+# is not under /api to index.html, so probes in production need the /api path.
 @app.get("/health", response_model=HealthResponse)
+@app.get("/api/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(corpus_version=corpus_version())
 
@@ -265,18 +278,26 @@ def analyze(req: PulseRequest) -> PulseResponse:
         contributing_feature=result["contributing_feature"],
         severity=severity,
         explanation=(
-            f"Anomaly score {result['anomaly_score']} is driven by {driver} "
-            f"(vibration {metrics['max_vib']} mm/s, temperature {metrics['max_temp_rise']} C "
-            f"above baseline, pressure variance {metrics['pressure_var']}%). "
+            (f"Anomaly score {result['anomaly_score']} is driven by {driver}. "
+             if severity in ("alert", "critical")
+             else f"Anomaly score {result['anomaly_score']}. The channel closest to its "
+                  f"limit is {driver}, and it is still inside the limit. ")
+            + f"Vibration {metrics['max_vib']} mm/s, temperature "
+              f"{_describe_rise(metrics['max_temp_rise'])}, pressure variance "
+              f"{metrics['pressure_var']}%. "
             + ("Lockout under 1910.147 is required before service."
                if severity in ("alert", "critical")
                else "Keep to the routine ISO 10816-3 monitoring interval.")
         ),
         explanation_simple=(
-            f"{req.equipment_id} is {severity}. The main problem is {driver}. "
-            + ("Stop the machine and inspect it within 3 days." if severity == "critical"
-               else "Book an inspection this week." if severity == "alert"
-               else "Nothing to do, keep it running.")
+            f"{req.equipment_id} is {severity}. "
+            + (f"The problem is {driver}. Stop the machine and inspect it within 3 days."
+               if severity == "critical"
+               else f"The problem is {driver}. Book an inspection this week."
+               if severity == "alert"
+               else f"Nothing is over a limit yet, but {driver} is the one to watch."
+               if severity == "monitor"
+               else "Nothing is near a limit. Keep it running.")
         ),
     )
 

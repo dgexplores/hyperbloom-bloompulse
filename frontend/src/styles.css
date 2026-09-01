@@ -291,6 +291,128 @@ ol, ul { padding: 0; list-style: none; }
   font-size: 10px;
 }
 
+/* Zone key. The A/B/C/D letters in the chart margin mean nothing to a
+   first-time reader without it. */
+.zone-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 22px;
+  border-top: 1px solid var(--rule-hair);
+  border-bottom: 1px solid var(--rule-hair);
+  padding: 8px 0;
+  margin-bottom: 10px;
+}
+
+.zone-key-label {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.zone {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-mid);
+}
+
+.zone i {
+  width: 9px;
+  height: 9px;
+  background: var(--zone-color);
+  opacity: 0.5;
+  border: 1px solid var(--zone-color);
+  align-self: center;
+  flex: none;
+}
+
+.zone b {
+  font-family: var(--furniture);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+
+.zone-limit {
+  font-family: var(--furniture);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.zone-meaning { color: var(--ink-mid); }
+
+/* Steps. The sequence is the information, so the numbers earn their place. */
+.steps {
+  margin-top: 16px;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--rule-hair);
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule-hair);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.steps b {
+  font-family: var(--furniture);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--paper);
+  background: var(--ink);
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  align-self: start;
+}
+
+.steps strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.link-btn {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule-hair);
+  color: var(--pen-press);
+  padding: 0 0 1px;
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Only shown where the chart actually needs dragging. */
+.scroll-note { display: none; }
+
 .chart-frame {
   border: 1px solid var(--rule);
   background: var(--paper);
@@ -670,7 +792,129 @@ ol, ul { padding: 0; list-style: none; }
   .btn { width: 100%; }
   /* The chart carries printed 9px furniture. Below this width it scrolls at a
      legible size rather than shrinking the labels into illegibility. */
-  .chart-frame { overflow-x: auto; }
+  /* Zone key. The A/B/C/D letters in the chart margin mean nothing to a
+   first-time reader without it. */
+.zone-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 22px;
+  border-top: 1px solid var(--rule-hair);
+  border-bottom: 1px solid var(--rule-hair);
+  padding: 8px 0;
+  margin-bottom: 10px;
+}
+
+.zone-key-label {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.zone {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-mid);
+}
+
+.zone i {
+  width: 9px;
+  height: 9px;
+  background: var(--zone-color);
+  opacity: 0.5;
+  border: 1px solid var(--zone-color);
+  align-self: center;
+  flex: none;
+}
+
+.zone b {
+  font-family: var(--furniture);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+
+.zone-limit {
+  font-family: var(--furniture);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.zone-meaning { color: var(--ink-mid); }
+
+/* Steps. The sequence is the information, so the numbers earn their place. */
+.steps {
+  margin-top: 16px;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--rule-hair);
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule-hair);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+
+.steps b {
+  font-family: var(--furniture);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--paper);
+  background: var(--ink);
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  align-self: start;
+}
+
+.steps strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.link-btn {
+  font-family: var(--furniture);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule-hair);
+  color: var(--pen-press);
+  padding: 0 0 1px;
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Only shown where the chart actually needs dragging. */
+.scroll-note { display: none; }
+
+.chart-frame { overflow-x: auto; }
   .chart-frame svg { min-width: 680px; }
   .cite-span, .cite-why {
   margin: 8px 0 0 30px;

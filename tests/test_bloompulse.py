@@ -245,3 +245,9 @@ def test_rate_limiter_rejects_a_flood():
     finally:
         api.RATE_LIMIT = original
         api._hits.clear()
+
+
+def test_health_is_reachable_under_the_api_prefix():
+    """Production rewrites everything outside /api to the SPA, so a probe on
+    bare /health would get HTML back."""
+    assert client.get("/api/v1/health").json()["status"] == "ok"

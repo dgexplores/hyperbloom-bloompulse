@@ -1,0 +1,22 @@
+# Local virtualenvs. These alone pushed the function bundle past 500MB.
+.venv
+.venv314
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+
+# Rebuilt on Vercel by the build command.
+node_modules
+frontend/node_modules
+frontend/dist
+
+# Not needed at runtime.
+tests
+.github
+.git
+
+# NOTE: do not exclude *.md here. corpus/sources/*.md IS the corpus, and the
+# citation assembler parses it at import. Excluding markdown silently shipped
+# an API that returned verdicts with no citations at all.

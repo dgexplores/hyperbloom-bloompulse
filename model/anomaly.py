@@ -8,8 +8,8 @@ regardless of what the unsupervised model thinks.
 from __future__ import annotations
 
 import numpy as np
-from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler
+
+from model.iforest import IsolationForest
 
 # Thresholds from corpus: ISO 10816-3 Table A.2 + NTN manual Sec 4.2
 VIB_NORMAL = 2.8            # mm/s - Zone B/C boundary
@@ -25,18 +25,14 @@ FEATURES = ("temperature_c", "vibration_mm_s", "pressure_bar",
 
 
 class BloomPulseAnomaly:
-    """Single-use scorer. Construct one per series, because fitting costs
-    about a millisecond and a shared instance would leak one series'
-    baseline into the next request."""
+    """Single-use scorer. Construct one per series, because fitting is cheap
+    and a shared instance would leak one series' baseline into the next
+    request."""
 
-    def __init__(self, contamination: float = 0.08):
-        self.scaler = StandardScaler()
-        self.model = IsolationForest(
-            n_estimators=150,
-            contamination=contamination,
-            random_state=42,
-            n_jobs=1,  # 150 trees on <=500 rows, threads cost more than they save
-        )
+    def __init__(self):
+        # No scaler: the forest splits inside each feature's own range, so it
+        # is scale invariant already. See tests/test_iforest.py.
+        self.model = IsolationForest(n_estimators=150, random_state=42)
 
     def _features(self, readings: list[dict]) -> np.ndarray:
         """6-dim feature matrix, one row per reading. See FEATURES."""
@@ -75,11 +71,10 @@ class BloomPulseAnomaly:
         if modeled:
             # Fit on the opening slice, assuming a series starts healthy and
             # degrades from there.
-            Xs = self.scaler.fit_transform(fit_slice)
-            self.model.fit(Xs)
-            raw = self.model.decision_function(self.scaler.transform(X))  # higher = normal
-            anomaly_scores = 0.5 - 0.5 * np.tanh(raw * 2)                 # maps to 0..1
-            agg_score = float(anomaly_scores[-RECENT_WINDOW:].mean())
+            self.model.fit(fit_slice)
+            # score_samples is already 0..1 with higher meaning more anomalous.
+            scored = self.model.score_samples(X)
+            agg_score = float(scored[-RECENT_WINDOW:].mean())
         else:
             agg_score = 0.0
 

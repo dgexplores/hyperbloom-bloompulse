@@ -1,3 +1,7 @@
 -r requirements.txt
-pytest==8.3.3
-httpx<0.28
+# Dev only. Used by tests/test_iforest.py to check our forest against the
+# reference implementation. Never shipped to the function.
+scikit-learn==1.9.0
+uvicorn==0.38.0
+pytest==8.4.2
+httpx==0.28.1

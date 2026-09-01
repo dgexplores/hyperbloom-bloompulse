@@ -1,11 +1,13 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
+  "buildCommand": "cd frontend && npm ci && npm run build",
   "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "{backend/**,model/**,corpus/**}"
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.py" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "env": {
-    "PYO3_USE_ABI3_FORWARD_COMPATIBILITY": "1"
-  }
+  ]
 }
