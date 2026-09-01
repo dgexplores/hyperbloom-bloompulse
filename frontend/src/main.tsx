@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ChartRecorder, { PEN_SPECS } from "./ChartRecorder";
 import ErrorBoundary from "./ErrorBoundary";
@@ -59,6 +59,21 @@ function App() {
       setBusy(false);
     }
   }, []);
+
+  // ?demo=failing or ?demo=healthy runs a sample on load, so the demo can be
+  // linked to directly and lands on a result rather than an empty chart.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current) return;
+    const wanted = new URLSearchParams(window.location.search).get("demo");
+    if (wanted !== "failing" && wanted !== "healthy") return;
+    autoRan.current = true;
+    const failing = wanted === "failing";
+    void run(
+      () => analyze(demoSeries(failing), "BRG-05-A"),
+      `${failing ? "failing" : "healthy"} demo series (synthetic)`,
+    );
+  }, [run]);
 
   const takeFile = useCallback(
     (file: File) => {

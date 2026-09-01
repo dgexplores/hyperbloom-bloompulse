@@ -28,8 +28,9 @@ above the confidence floor is reported as an abstention.
 ## Who uses it
 
 Maintenance supervisors and plant engineers at small and mid-size US
-manufacturers, the 70% with no predictive-maintenance program at all. They own
-the machine, sign the work order, and answer for the OSHA citation.
+manufacturers, the ones without a predictive-maintenance programme because the
+commercial platforms are priced and packaged for large plants. They own the
+machine, sign the work order, and answer for the OSHA citation.
 
 They are not data scientists. They already read standards, nameplates and
 drawings fluently, and they distrust a number that arrives without a source.
@@ -60,8 +61,10 @@ holding the wrench, or pasted into a CMMS ticket.
 
 ## Context
 
-Built solo for HyperBloom Hacks 2026. Judged on AI at the core, industrial
-application, innovation, execution, and accessibility.
+Built for the Hyperbloom September AI/ML hackathon, which runs 25 August to
+14 September 2026. Published criteria: Impact and Relevance 25%, Technical
+Implementation 25%, Innovation and Creativity 20%, AI/ML Integration 20%,
+Presentation and Demo 10%.
 
 ## Assumptions
 

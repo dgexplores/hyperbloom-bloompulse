@@ -6,8 +6,12 @@ passage of the standard it came from.**
 No sensors to install, no gateway, no vendor contract, no API key.
 
 **Live: https://hyperbloom-bloompulse.vercel.app**
+Straight to a result: [failing machine](https://hyperbloom-bloompulse.vercel.app/?demo=failing) ·
+[healthy machine](https://hyperbloom-bloompulse.vercel.app/?demo=healthy)
 
-Built for HyperBloom Hacks 2026. MIT licensed.
+![A critical verdict, with the chart, work order and four cited passages](docs/img/verdict-critical.png)
+
+Built for the Hyperbloom September AI/ML hackathon. MIT licensed.
 
 ---
 
@@ -267,7 +271,41 @@ links, and mobile layout.
       deterministic. Semantic retrieval over the corpus would generalise past
       the current three-channel schema.
 
-## 7. Design direction
+## 7. Hackathon submission
+
+**Hyperbloom September, AI/ML.** Online, run by [Hyperbloom Hacks](https://www.hyperbloomhacks.com/),
+hosted on [Devpost](https://hyperbloom-september.devpost.com/). Runs 25 August
+to **14 September 2026, 5:00pm EDT**. Prize pool $710. Open to high school and
+college students.
+
+The organisers' rule on AI tools: using existing models and AI/ML APIs is
+allowed as long as AI/ML plays a meaningful role. Nothing here needs a hosted
+model at all, and the Isolation Forest is written out in `model/iforest.py`.
+
+### How this maps to the published criteria
+
+| Criterion | Weight | Where this project stands |
+|---|---|---|
+| **Impact & Relevance** | 25% | Predictive maintenance is priced for large plants, and the small manufacturers who carry the same OSHA exposure are the ones without it. This needs a CSV and a browser: no sensors, no gateway, no contract, no key. Every verdict ends in an action and a work order, not a dashboard. |
+| **Innovation & Creativity** | 20% | The output is not a score, it is a **cited verdict**. Each claim carries a verbatim passage, its locator, a deep link and the sha256 of the corpus file it was parsed from, and a test fails if any returned span is not found in the corpus. The interface is a working strip-chart recorder, with ISO limits printed on the paper before data arrives. |
+| **Technical Implementation** | 25% | 43 tests and CI. 12 defects found and fixed, each with a regression test. Isolation Forest implemented on numpy and validated against scikit-learn. Every malformed upload answered with an actionable 400. Deployed and verified end to end. |
+| **AI/ML Integration** | 20% | The forest is the product, not a wrapper. It fits each machine's own baseline, and published ISO/NTN thresholds gate the result so a real breach escalates whatever the model thinks. Below the confidence floor it abstains rather than guessing. |
+| **Presentation & Demo** | 10% | Two one-click samples, shareable `?demo=` links that land on a result, screenshots in this README, and `docs/DEMO_GUIDE.md` as a 90 second script. **A recorded video is still outstanding.** |
+
+### Submission checklist
+
+- [x] Project description, 200 to 500 words, in `docs/DESCRIPTION.md`
+- [x] Public GitHub repository
+- [x] AI tools disclosure, section 8 below
+- [x] Working live demo
+- [ ] **Team members listed on the Devpost entry**
+- [ ] **Demo video** recorded from `docs/DEMO_GUIDE.md`
+- [ ] Post-event survey, after submitting
+- [ ] Confirm eligibility: students only, and above the age of majority where you live
+
+---
+
+## 8. Design direction
 
 The surface is a multi-pen strip-chart recorder, the instrument this audience
 already reads. Chart stock, a printed orange-red grid, three pen colours, ISO
@@ -280,7 +318,7 @@ is in `PRODUCT.md`.
 
 ---
 
-## 8. AI tools disclosure
+## 9. AI tools disclosure
 
 - Code assistance from Claude Code, for the hardening pass and the frontend
   rewrite described above.
@@ -293,7 +331,7 @@ is in `PRODUCT.md`.
 
 ---
 
-## 9. Disclaimer
+## 10. Disclaimer
 
 Information only. Not a substitute for a certified inspection. Verify every
 citation at its source before acting on it.

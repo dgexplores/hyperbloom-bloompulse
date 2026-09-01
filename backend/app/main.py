@@ -268,37 +268,34 @@ def analyze(req: PulseRequest) -> PulseResponse:
     metrics = result["metrics"]
     severity = result["severity"]
     driver = result["contributing_feature"].replace("_", " ")
+    urgent = severity in ("alert", "critical")
+
+    advice = {
+        "critical": f"The problem is {driver}. Stop the machine and inspect it within 3 days.",
+        "alert": f"The problem is {driver}. Book an inspection this week.",
+        "monitor": f"Nothing is over a limit yet, but {driver} is the one to watch.",
+        "normal": "Nothing is near a limit. Keep it running.",
+    }
 
     anomaly = AnomalyResult(
         equipment_id=req.equipment_id,
-        is_anomaly=severity in ("alert", "critical"),
+        is_anomaly=urgent,
         anomaly_score=result["anomaly_score"],
         failure_probability_7d=result["failure_probability_7d"],
         predicted_failure_days=result["predicted_failure_days"],
         contributing_feature=result["contributing_feature"],
         severity=severity,
-        explanation=(
-            (f"Anomaly score {result['anomaly_score']} is driven by {driver}. "
-             if severity in ("alert", "critical")
-             else f"Anomaly score {result['anomaly_score']}. The channel closest to its "
-                  f"limit is {driver}, and it is still inside the limit. ")
-            + f"Vibration {metrics['max_vib']} mm/s, temperature "
-              f"{_describe_rise(metrics['max_temp_rise'])}, pressure variance "
-              f"{metrics['pressure_var']}%. "
-            + ("Lockout under 1910.147 is required before service."
-               if severity in ("alert", "critical")
-               else "Keep to the routine ISO 10816-3 monitoring interval.")
-        ),
-        explanation_simple=(
-            f"{req.equipment_id} is {severity}. "
-            + (f"The problem is {driver}. Stop the machine and inspect it within 3 days."
-               if severity == "critical"
-               else f"The problem is {driver}. Book an inspection this week."
-               if severity == "alert"
-               else f"Nothing is over a limit yet, but {driver} is the one to watch."
-               if severity == "monitor"
-               else "Nothing is near a limit. Keep it running.")
-        ),
+        explanation=" ".join([
+            f"Anomaly score {result['anomaly_score']} is driven by {driver}." if urgent
+            else f"Anomaly score {result['anomaly_score']}. The channel closest to its "
+                 f"limit is {driver}, and it is still inside the limit.",
+            f"Vibration {metrics['max_vib']} mm/s, temperature "
+            f"{_describe_rise(metrics['max_temp_rise'])}, pressure variance "
+            f"{metrics['pressure_var']}%.",
+            "Lockout under 1910.147 is required before service." if urgent
+            else "Keep to the routine ISO 10816-3 monitoring interval.",
+        ]),
+        explanation_simple=f"{req.equipment_id} is {severity}. {advice[severity]}",
     )
 
     return PulseResponse(

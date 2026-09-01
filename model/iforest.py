@@ -14,12 +14,15 @@ splits it takes to isolate it. Anomalies isolate quickly.
 """
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 
 # A leaf is ("leaf", size). A branch is (feature, threshold, left, right).
 Node = tuple
 
 
+@lru_cache(maxsize=512)
 def average_path_length(n: int) -> float:
     """Expected path length of an unsuccessful BST search over n points.
 
@@ -104,7 +107,8 @@ class IsolationForest:
         c = average_path_length(self.subsample_size_)
         if c <= 0:
             return np.full(len(X), 0.5)
+        trees = self.trees_
         mean_depth = np.array([
-            np.mean([self._path_length(x, tree) for tree in self.trees_]) for x in X
+            sum(self._path_length(x, tree) for tree in trees) / len(trees) for x in X
         ])
         return 2.0 ** (-mean_depth / c)

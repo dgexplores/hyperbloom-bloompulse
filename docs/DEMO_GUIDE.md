@@ -1,6 +1,10 @@
 # Demo guide, 90 seconds
 
-Run `make backend` and `make frontend`, or open the deployed URL.
+Open https://hyperbloom-bloompulse.vercel.app, or run `make backend` and
+`make frontend` locally.
+
+To skip straight to a result, the demo is linkable:
+`?demo=failing` and `?demo=healthy`.
 
 1. **Open the page.** The chart is already there: pre-printed grid, ISO 10816-3
    zone bands down the right margin, and both alarm limits ruled across the
