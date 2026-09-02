@@ -9,9 +9,71 @@ No sensors to install, no gateway, no vendor contract, no API key.
 Straight to a result: [failing machine](https://hyperbloom-bloompulse.vercel.app/?demo=failing) ·
 [healthy machine](https://hyperbloom-bloompulse.vercel.app/?demo=healthy)
 
+**Submit / judge this here: [Hyperbloom September, AI/ML on Devpost](https://hyperbloom-september.devpost.com/)**
+Deadline **14 September 2026, 5:00pm EDT**.
+
 ![A critical verdict, with the chart, work order and four cited passages](docs/img/verdict-critical.png)
 
 Built for the Hyperbloom September AI/ML hackathon. MIT licensed.
+
+---
+
+## In plain words
+
+Say a bearing on a factory machine is starting to fail. It gets hotter and
+shakes more than it should, days before it actually breaks. A maintenance
+worker exports that sensor log as a CSV, from whatever system already logs it,
+and drops it into BloomPulse.
+
+BloomPulse looks at the numbers the same way an experienced technician would:
+"is this normal for this machine, and does any of it cross a line the safety
+rulebook has already drawn?" It answers with:
+
+- **A verdict**: Normal, Monitor, Alert, or Critical.
+- **A reason**: which reading is the problem, and how far past the limit it is.
+- **A source**: the exact sentence from the ISO or OSHA standard that
+  justifies the verdict, not just "trust the AI."
+- **A work order**: what to do about it, downloadable as one file.
+
+If it isn't sure, it says so instead of guessing. No sensor kit, no software to
+install, no account, no fee. A CSV file and a browser is the whole requirement.
+
+### The numbers, measured not claimed
+
+| | |
+|---|---|
+| Response time | about 28ms locally, under 100ms live |
+| Tests passing | 43 |
+| Every citation checked against the source text | 15 / 15, 100% |
+| Verdicts matching hand-labelled test cases | 7 / 7, 100% |
+| Deployed function size | under Vercel's 225MB limit |
+| Cost to run the demo | $0, no key required |
+
+(`make eval` regenerates these from `eval/report.json`, they are measured on
+every CI run, not typed in by hand.)
+
+---
+
+## Status: what's done, what's left
+
+**Done.** Backend hardened (12 defects fixed, 43 tests), the citation engine
+reads real corpus files and checks its own output against them, the frontend
+was rebuilt around one committed design, it is deployed and verified live, and
+the submission is mapped to the real judging criteria. See section 5 for the
+full list of what was fixed and why.
+
+**Left, and only the project owner can finish these:**
+
+- [ ] **Record the demo video.** `docs/DEMO_GUIDE.md` is a ready shot-by-shot
+      script, 90 seconds, against the live site.
+- [ ] **List team members** on the Devpost submission page.
+- [ ] **Submit** on [Devpost](https://hyperbloom-september.devpost.com/) before
+      **14 September 2026, 5:00pm EDT**.
+- [ ] Fill out the post-event survey once it opens.
+- [ ] Confirm eligibility: student, above the age of majority where you live.
+
+See section 6 for smaller, optional engineering follow-ups that do not block
+submission.
 
 ---
 
