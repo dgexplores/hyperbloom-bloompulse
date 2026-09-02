@@ -382,8 +382,8 @@ is in `PRODUCT.md`.
 
 ## 9. AI tools disclosure
 
-- Code assistance from Claude Code, for the hardening pass and the frontend
-  rewrite described above.
+- Code assistance from an AI pair-programming tool, for the hardening pass
+  and the frontend rewrite described above.
 - Models: scikit-learn Isolation Forest, MIT. No LLM is called at runtime.
   Retrieval is offline and extractive.
 - Data: the sample CSVs are synthetic and reproducible from
