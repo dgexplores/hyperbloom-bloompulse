@@ -4,10 +4,17 @@
 
 Metrics:
   span_fidelity     fraction of returned spans found verbatim in a corpus file.
-                    This is the meaningful faithfulness number for extractive
-                    retrieval: a span that is not in the corpus was invented.
+                    Read this as a parser invariant, NOT as a provenance check:
+                    the spans were parsed out of the same file this searches, so
+                    it can only fail if the parser is broken. Real provenance
+                    would need a reference copy of the published text.
   citation_coverage fraction of verdicts carrying at least one citation.
   severity_accuracy agreement with hand-labelled synthetic fixtures.
+  healthy_fp_rate   fraction of a healthy population reported as not normal.
+                    This is the number that matters most: the severity boundary
+                    used to sit on the model's noise floor and flagged 41%.
+  drift_detection   fraction of drifting-but-not-breaching series escalated.
+                    The only thing the model does that the gates cannot.
   abstention_rate   fraction of verdicts below the confidence floor.
   latency_ms        p50 and p95 over the fixture set.
 """
@@ -23,6 +30,8 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app
 from backend.app.rag.citations import SOURCES_DIR, corpus_version
+from eval.healthy_population import population
+from model.anomaly import BloomPulseAnomaly
 
 ROOT = Path(__file__).resolve().parent.parent
 client = TestClient(app)
@@ -53,6 +62,26 @@ FIXTURES = [
     ("progressive bearing",   series(30, 1.9, 54.0, drift=1.0),      "critical"),
     ("thermal runaway",       series(30, 2.0, 52.0, drift=0.55),     "critical"),
 ]
+
+
+# Series that are drifting but have crossed no published limit. These are the
+# cases only the model can catch, so they are measured separately from the
+# threshold fixtures above. Labelled "monitor or worse": the point is that the
+# gates stay silent and the model still escalates.
+def drifting(n=60, vib_drift=0.012, temp_drift=0.22, seed=0):
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    return [{
+        "timestamp": f"2026-08-20T{i // 60:02d}:{i % 60:02d}:00",
+        "equipment_id": "BRG-05-A",
+        "temperature_c": float(52 + temp_drift * i + rng.normal(0, 0.5)),
+        "vibration_mm_s": float(1.8 + vib_drift * i + rng.normal(0, 0.07)),
+        "pressure_bar": float(5.0 + rng.normal(0, 0.03)),
+    } for i in range(n)]
+
+
+DRIFT_FIXTURES = [("sub-threshold creep", drifting(seed=s)) for s in range(20)]
 
 
 def corpus_text() -> str:
@@ -94,6 +123,25 @@ def main() -> None:
         })
 
     n = len(FIXTURES)
+
+    # The healthy false-positive rate, measured on the same population the
+    # drift cuts are calibrated from.
+    healthy = population(200)
+    healthy_flagged = 0
+    for readings in healthy:
+        engine = BloomPulseAnomaly()
+        if engine.score(readings)["severity"] != "normal":
+            healthy_flagged += 1
+    healthy_fp_rate = round(healthy_flagged / len(healthy), 4)
+
+    # Drift that no published limit catches: the model's only unique job.
+    drift_escalated = 0
+    for _, readings in DRIFT_FIXTURES:
+        result = BloomPulseAnomaly().score(readings)
+        assert not result["gate_breached"], "drift fixture crossed a published limit"
+        drift_escalated += result["severity"] != "normal"
+    drift_detection = round(drift_escalated / len(DRIFT_FIXTURES), 4)
+
     report = {
         "corpus_version": corpus_version(),
         "fixtures": n,
@@ -101,6 +149,10 @@ def main() -> None:
         "spans_checked": spans_total,
         "citation_coverage": round(cited / n, 4),
         "severity_accuracy": round(correct / n, 4),
+        "healthy_fp_rate": healthy_fp_rate,
+        "healthy_population": len(healthy),
+        "drift_detection": drift_detection,
+        "drift_fixtures": len(DRIFT_FIXTURES),
         "abstention_rate": round(abstained / n, 4),
         "latency_ms_p50": round(statistics.median(latencies), 1),
         "latency_ms_p95": round(sorted(latencies)[int(n * 0.95) - 1], 1),
@@ -114,6 +166,8 @@ def main() -> None:
     print(f"span fidelity     {report['span_fidelity']}  ({spans_found}/{spans_total} verbatim in corpus)")
     print(f"citation coverage {report['citation_coverage']}")
     print(f"severity accuracy {report['severity_accuracy']}  ({correct}/{n})")
+    print(f"healthy fp rate   {report['healthy_fp_rate']}  ({healthy_flagged}/{len(healthy)} healthy machines flagged)")
+    print(f"drift detection   {report['drift_detection']}  ({drift_escalated}/{len(DRIFT_FIXTURES)} sub-threshold drifts escalated)")
     print(f"abstention rate   {report['abstention_rate']}")
     print(f"latency p50/p95   {report['latency_ms_p50']} / {report['latency_ms_p95']} ms")
     for row in rows:

@@ -1,4 +1,4 @@
-.PHONY: install backend frontend test eval sample corpus clean
+.PHONY: install backend frontend test eval sample corpus calibrate clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -24,6 +24,11 @@ test:
 
 eval:
 	PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 $(PY) eval/run_eval.py
+
+# Sets the drift cuts in model/anomaly.py from a measured healthy population.
+# Run after anything that moves the score, then paste the printed values in.
+calibrate:
+	PYTHONPATH=. $(PY) eval/calibrate.py
 
 sample:
 	PYTHONPATH=. $(PY) model/sample_data.py

@@ -29,9 +29,9 @@ def test_scoring_is_independent_of_call_order():
     """The engine held module-level state, so a series' score depended on
     whichever file happened to be scored before it."""
     healthy, failing = series(30), series(30, vib=6.0, temp=80.0)
-    first = score_readings(healthy)["anomaly_score"]
+    first = score_readings(healthy)["anomaly_index"]
     score_readings(failing)
-    assert score_readings(healthy)["anomaly_score"] == first
+    assert score_readings(healthy)["anomaly_index"] == first
 
 
 def test_scoring_is_deterministic():
@@ -251,3 +251,169 @@ def test_health_is_reachable_under_the_api_prefix():
     """Production rewrites everything outside /api to the SPA, so a probe on
     bare /health would get HTML back."""
     assert client.get("/api/v1/health").json()["status"] == "ok"
+
+
+# --- calibration: the healthy false-positive rate ---------------------------
+#
+# The severity boundary used to be a fixed `agg_score < 0.50`, which sat exactly
+# on the Isolation Forest's noise floor. Measured on this population it reported
+# 41% of healthy machines as drifting, and 27% as having a >50% chance of
+# failing within seven days. These tests are the guard against that returning.
+
+def test_healthy_machines_are_not_reported_as_drifting():
+    """A shop-floor tool that cries drift on a clean machine is worse than
+    useless, so the healthy false-positive rate is a hard budget."""
+    from eval.healthy_population import population
+
+    severities = [score_readings(series)["severity"] for series in population(200)]
+    drifting = sum(s != "normal" for s in severities)
+    rate = drifting / len(severities)
+    assert rate <= 0.05, (
+        f"{drifting}/{len(severities)} healthy machines were reported as drifting "
+        f"({rate:.1%}). Re-run eval/calibrate.py."
+    )
+
+
+def test_the_drift_cut_still_matches_the_population_it_was_set_from():
+    """The cut in model/anomaly.py is measured, not chosen. If anything that
+    moves the score changes, this fails rather than the tool quietly drifting
+    back to flagging healthy machines."""
+    from eval.healthy_population import population
+    from model.anomaly import DRIFT_MONITOR, BloomPulseAnomaly
+
+    drifts = []
+    for readings in population(200):
+        engine = BloomPulseAnomaly()
+        engine.score(readings)
+        if engine.last_drift is not None:
+            drifts.append(engine.last_drift)
+    assert drifts, "no series in the healthy population could be modelled"
+    crossed = sum(d > DRIFT_MONITOR for d in drifts) / len(drifts)
+    assert crossed <= 0.05, (
+        f"{crossed:.1%} of the healthy population crossed DRIFT_MONITOR "
+        f"({DRIFT_MONITOR}). Re-run eval/calibrate.py and update the constants."
+    )
+
+
+def test_the_model_escalates_drift_that_no_published_limit_catches():
+    """The forest has to earn its place. A machine drifting clear of its own
+    baseline escalates before anything published is crossed, which is the one
+    thing the model does that the threshold gates cannot."""
+    import numpy as np
+
+    from model.anomaly import (
+        DRIFT_MONITOR, TEMP_RISE_THRESHOLD, VIB_NORMAL, BloomPulseAnomaly,
+    )
+
+    rng = np.random.default_rng(0)
+    readings = [{
+        "timestamp": f"2026-08-20T{i // 60:02d}:{i % 60:02d}:00",
+        "equipment_id": "BRG-05-A",
+        "temperature_c": float(52 + 0.22 * i + rng.normal(0, 0.5)),
+        "vibration_mm_s": float(1.8 + 0.012 * i + rng.normal(0, 0.07)),
+        "pressure_bar": float(5.0 + rng.normal(0, 0.03)),
+    } for i in range(60)]
+
+    engine = BloomPulseAnomaly()
+    result = engine.score(readings)
+
+    # Nothing published is breached...
+    assert result["gate_breached"] == [], result["gate_breached"]
+    assert result["metrics"]["max_vib"] < VIB_NORMAL
+    assert result["metrics"]["max_temp_rise"] < TEMP_RISE_THRESHOLD
+    # ...and the model is the reason the verdict is not "normal".
+    assert engine.last_drift is not None
+    assert engine.last_drift > DRIFT_MONITOR
+    assert result["severity"] == "monitor"
+
+
+def test_temperature_rise_is_measured_from_the_start_of_the_series():
+    """A rise has to be measured from the beginning. The baseline used to be the
+    mean of the first eight readings, which on a shorter series was the mean of
+    the whole series and reported roughly half the real rise."""
+    readings = [{
+        "timestamp": f"2026-08-20T{i:02d}:00:00", "equipment_id": "B",
+        "temperature_c": 50.0 + 1.2 * i, "vibration_mm_s": 2.0, "pressure_bar": 5.0,
+    } for i in range(8)]
+    result = score_readings(readings)
+    actual = readings[-1]["temperature_c"] - readings[0]["temperature_c"]
+    reported = result["metrics"]["max_temp_rise"]
+    assert reported > actual * 0.8, (
+        f"reported {reported} C for an actual rise of {actual} C"
+    )
+
+
+def test_the_response_publishes_no_probability_claim():
+    """Nothing in this project is calibrated against failure events, so the API
+    must not put a probability in front of a maintenance supervisor."""
+    body = upload(open("model/sample_anomaly.csv", "rb").read()).json()
+    anomaly = body["anomaly"]
+    assert "failure_probability_7d" not in anomaly
+    assert "predicted_failure_days" not in anomaly
+    assert "anomaly_index" in anomaly
+    assert anomaly["inspection_window_days"] == 3
+
+
+# --- rate limiter identity and growth ---------------------------------------
+
+def test_rate_limiter_buckets_per_forwarded_client():
+    """Behind a proxy `request.client.host` is the proxy, so keying on it put
+    every visitor in one bucket and rate-limited the whole public demo at once."""
+    import backend.app.main as api
+
+    original, api.RATE_LIMIT = api.RATE_LIMIT, 3
+    api._hits.clear()
+    api._last_sweep = 0.0
+    try:
+        payload = {"equipment_id": "B", "readings": [
+            {"timestamp": "2026-08-20T08:00:00", "equipment_id": "B",
+             "temperature_c": 55.0, "vibration_mm_s": 2.0, "pressure_bar": 5.0}]}
+        codes = [client.post("/api/v1/pulse/analyze", json=payload,
+                             headers={"x-forwarded-for": f"203.0.113.{i}"}).status_code
+                 for i in range(8)]
+        assert set(codes) == {200}, codes
+        assert len(api._hits) == 8, api._hits
+    finally:
+        api.RATE_LIMIT = original
+        api._hits.clear()
+
+
+def test_rate_limiter_evicts_idle_buckets():
+    """The bucket dict is keyed on caller-supplied addresses, so it must not be
+    able to grow without bound."""
+    import time
+    from collections import deque
+
+    import backend.app.main as api
+
+    api._hits.clear()
+    api._last_sweep = 0.0
+    try:
+        for i in range(50):
+            api._hits[f"198.51.100.{i}"] = deque([1.0])  # long idle
+        now = time.monotonic()
+        api._hits["active"] = deque([now])
+        api._sweep(now)
+        assert list(api._hits) == ["active"], list(api._hits)
+    finally:
+        api._hits.clear()
+        api._last_sweep = 0.0
+
+
+# --- provenance --------------------------------------------------------------
+
+def test_only_passages_that_declare_published_provenance_read_as_published():
+    """The flag defaults to synthetic and is cleared only by an explicit marker,
+    so a passage written for the demo cannot be shown as a standard. The old
+    rule searched the section for the literal word "synthetic", which an
+    invented passage could simply avoid using."""
+    from backend.app.rag.citations import passages
+
+    collected = passages()
+    assert collected["Sec 1910.147 - Control of Hazardous Energy (Lockout/Tagout)"].synthetic is False
+    assert collected["Sec 1910.212 - General Requirements for All Machines"].synthetic is False
+    assert collected["Bearing Unit Model: NTN UCFCX05"].synthetic is True
+    assert collected["ISO 10816-3 - Vibration Severity (Industrial)"].synthetic is True
+    assert collected["Siemens Simotics Motor - Predictive Thresholds"].synthetic is True
+    # Falsely attributed to ISO 55000, which does not contain it.
+    assert "Maintenance Work Order Template" not in collected
