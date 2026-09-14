@@ -1,5 +1,7 @@
 # BloomPulse
 
+[![CI](https://github.com/dgexplores/hyperbloom-bloompulse/actions/workflows/ci.yml/badge.svg)](https://github.com/dgexplores/hyperbloom-bloompulse/actions/workflows/ci.yml) [![Deploy verify](https://github.com/dgexplores/hyperbloom-bloompulse/actions/workflows/deploy-verify.yml/badge.svg)](https://github.com/dgexplores/hyperbloom-bloompulse/actions/workflows/deploy-verify.yml) [![Live](https://img.shields.io/badge/live-vercel.app-black)](https://hyperbloom-bloompulse.vercel.app)
+
 **Load a sensor CSV. Get a machine-condition verdict where every claim carries the
 passage of the standard it came from.**
 
@@ -8,6 +10,8 @@ No sensors to install, no gateway, no vendor contract, no API key.
 **Live: https://hyperbloom-bloompulse.vercel.app**
 Straight to a result: [failing machine](https://hyperbloom-bloompulse.vercel.app/?demo=failing) ·
 [healthy machine](https://hyperbloom-bloompulse.vercel.app/?demo=healthy)
+
+> Interviewer in 60 seconds: CSV → Isolation Forest (own baseline) + ISO 10816-3 gates → severity + work order, every claim quoted verbatim from `corpus/sources/*.md` with sha. `make test && make eval`, then open the failing link above and check Authority column → Verify at source. Arch: `frontend/` SPA + one FastAPI fn (`api/index.py`), no DB, no key, ~30ms.
 
 **Submit / judge this here: [Hyperbloom September, AI/ML on Devpost](https://hyperbloom-september.devpost.com/)**
 Deadline **14 September 2026, 5:00pm EDT**.
@@ -43,7 +47,7 @@ install, no account, no fee. A CSV file and a browser is the whole requirement.
 | | |
 |---|---|
 | Response time | about 28ms locally, under 100ms live |
-| Tests passing | 43 |
+| Tests passing | 44 |
 | Every citation checked against the source text | 15 / 15, 100% |
 | Verdicts matching hand-labelled test cases | 7 / 7, 100% |
 | Deployed function size | under Vercel's 225MB limit |
@@ -56,7 +60,7 @@ every CI run, not typed in by hand.)
 
 ## Status: what's done, what's left
 
-**Done.** Backend hardened (12 defects fixed, 43 tests), the citation engine
+**Done.** Backend hardened (12 defects fixed, 44 tests), the citation engine
 reads real corpus files and checks its own output against them, the frontend
 was rebuilt around one committed design, it is deployed and verified live, and
 the submission is mapped to the real judging criteria. See section 5 for the
@@ -117,7 +121,7 @@ cd frontend && npm install && npm run dev
 
 ```bash
 # Tests
-PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 43 tests
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 44 tests
 PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 .venv/bin/python eval/run_eval.py
 
 # Regenerate the sample CSVs
@@ -195,7 +199,7 @@ DESIGN.md           the built visual system
 
 ## 5. Build status
 
-A hardening and redesign pass is **complete**. 32 tests, a measured eval, and CI
+A hardening and redesign pass is **complete**. 44 tests, a measured eval, and CI
 on every push.
 
 ### 5.1 Backend: 12 defects fixed
@@ -350,7 +354,7 @@ model at all, and the Isolation Forest is written out in `model/iforest.py`.
 |---|---|---|
 | **Impact & Relevance** | 25% | Predictive maintenance is priced for large plants, and the small manufacturers who carry the same OSHA exposure are the ones without it. This needs a CSV and a browser: no sensors, no gateway, no contract, no key. Every verdict ends in an action and a work order, not a dashboard. |
 | **Innovation & Creativity** | 20% | The output is not a score, it is a **cited verdict**. Each claim carries a verbatim passage, its locator, a deep link and the sha256 of the corpus file it was parsed from, and a test fails if any returned span is not found in the corpus. The interface is a working strip-chart recorder, with ISO limits printed on the paper before data arrives. |
-| **Technical Implementation** | 25% | 43 tests and CI. 12 defects found and fixed, each with a regression test. Isolation Forest implemented on numpy and validated against scikit-learn. Every malformed upload answered with an actionable 400. Deployed and verified end to end. |
+| **Technical Implementation** | 25% | 44 tests and CI. 12 defects found and fixed, each with a regression test. Isolation Forest implemented on numpy and validated against scikit-learn. Every malformed upload answered with an actionable 400. Deployed and verified end to end. |
 | **AI/ML Integration** | 20% | The forest is the product, not a wrapper. It fits each machine's own baseline, and published ISO/NTN thresholds gate the result so a real breach escalates whatever the model thinks. Below the confidence floor it abstains rather than guessing. |
 | **Presentation & Demo** | 10% | Two one-click samples, shareable `?demo=` links that land on a result, screenshots in this README, and `docs/DEMO_GUIDE.md` as a 90 second script. **A recorded video is still outstanding.** |
 

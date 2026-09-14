@@ -1,10 +1,16 @@
 services:
   backend:
-    build: ./backend
+    # No Dockerfile: run the FastAPI app directly off the repo checkout so
+    # the compose path and the Vercel path score with the same code.
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - .:/app
     ports:
       - "8000:8000"
     environment:
       - APP_ENV=development
       - LLM_PROVIDER=offline
       - VECTOR_STORE=memory
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+      - PYTHONPATH=/app
+    command: sh -c "pip install -q -r requirements.txt && uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"

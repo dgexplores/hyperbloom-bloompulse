@@ -4,8 +4,13 @@ VENV := .venv
 PY := $(VENV)/bin/python
 
 install:
-	uv venv --python 3.12 $(VENV)
-	uv pip install --python $(PY) -r requirements-dev.txt
+	if command -v uv >/dev/null 2>&1; then \
+		uv venv --python 3.12 $(VENV); \
+		uv pip install --python $(PY) -r requirements-dev.txt; \
+	else \
+		python3 -m venv $(VENV); \
+		$(PY) -m pip install -r requirements-dev.txt; \
+	fi
 	cd frontend && npm install
 
 backend:

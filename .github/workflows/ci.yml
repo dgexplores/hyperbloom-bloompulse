@@ -5,14 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -r requirements-dev.txt
       - name: Tests
@@ -20,10 +31,12 @@ jobs:
       - name: Eval
         run: PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 python eval/run_eval.py
       - name: Vercel function requirements match the root
+        if: matrix.python-version == '3.12'
         run: |
           diff requirements.txt api/requirements.txt             || (echo "::error::api/requirements.txt has drifted from requirements.txt" && exit 1)
 
       - name: Corpus manifest is current
+        if: matrix.python-version == '3.12'
         run: |
           PYTHONPATH=. python corpus/build_manifest.py --check
 

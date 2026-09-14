@@ -1,0 +1,53 @@
+name: Deploy verify
+
+# Catches the failure mode this repo already hit once: Vercel green,
+# API 200, but verdicts shipping with zero citations because
+# corpus/sources/*.md never made it into the function bundle.
+# Hits the live deployment and asserts behaviour, not just build success.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  LIVE_URL: https://hyperbloom-bloompulse.vercel.app
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Health carries status + corpus version
+        run: |
+          body=$(curl -sSf "$LIVE_URL/api/v1/health")
+          echo "$body"
+          python3 -c "import json,sys; b=json.loads(sys.argv[1]); assert b['status']=='ok', b; assert b['corpus_version'].startswith('bloompulse-'), b" "$body"
+
+      - name: Failing sample still verdicts critical with citations
+        run: |
+          body=$(curl -sSf -X POST "$LIVE_URL/api/v1/pulse/upload?equipment_id=BRG-05-A" -F file=@model/sample_anomaly.csv)
+          echo "$body" | head -c 600; echo
+          python3 -c "
+          import json,sys
+          b=json.loads(sys.argv[1])
+          assert b['anomaly']['severity']=='critical', b['anomaly']
+          assert len(b['citations'])>=1, 'zero citations on live upload'
+          assert all(c['span_text'] and c['locator'] and c['deep_link'] for c in b['citations']), b['citations']
+          print('live smoke ok:', b['anomaly']['severity'], len(b['citations']), 'citations')
+          " "$body"
+
+      - name: Deep links land on a result
+        run: |
+          curl -sSf -o /dev/null "$LIVE_URL/?demo=failing"
+          curl -sSf -o /dev/null "$LIVE_URL/sample_anomaly.csv"

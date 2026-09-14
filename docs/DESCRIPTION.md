@@ -50,7 +50,7 @@ instead of guessing.
 
 ## State
 
-Deployed and working, 43 tests, CI, and an eval that measures span fidelity and
+Deployed and working, 44 tests, CI, and an eval that measures span fidelity and
 severity accuracy against labelled fixtures rather than asserting them. Twelve
 defects were found and fixed during hardening, including an engine that leaked
 one machine's baseline into the next request.
