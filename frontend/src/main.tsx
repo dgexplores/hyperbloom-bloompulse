@@ -10,7 +10,7 @@ const CORPUS_FALLBACK = "bloompulse-2026.08.31-v1";
 const STAMP: Record<Severity, { color: string; word: string; sub: string }> = {
   normal:   { color: "var(--zone-ab)", word: "Normal",   sub: "Inside ISO 10816-3 Zone A/B. No action." },
   monitor:  { color: "var(--zone-c)",  word: "Monitor",  sub: "Drifting from baseline, still under every limit." },
-  alert:    { color: "#D2600C",        word: "Alert",    sub: "A published limit has been crossed." },
+  alert:    { color: "var(--zone-alert)", word: "Alert",  sub: "A published limit has been crossed." },
   critical: { color: "var(--zone-d)",  word: "Critical", sub: "Shutdown threshold exceeded. Lockout applies." },
 };
 
@@ -106,9 +106,8 @@ function App() {
       "## Condition",
       "",
       `- Severity: ${anomaly.severity.toUpperCase()}`,
-      `- Anomaly score: ${anomaly.anomaly_score}`,
-      `- Failure probability, 7 day: ${(anomaly.failure_probability_7d * 100).toFixed(0)}%`,
-      `- Predicted window: ${anomaly.predicted_failure_days ? `${anomaly.predicted_failure_days} days` : "none"}`,
+      `- Anomaly index: ${anomaly.anomaly_index} (0 to 1, distance from this machine's own baseline)`,
+      `- Inspection window: ${anomaly.inspection_window_days ? `${anomaly.inspection_window_days} days` : "none"}`,
       `- Driving channel: ${anomaly.contributing_feature.replace(/_/g, " ")}`,
       `- Confidence: ${confidence.score}%${confidence.abstain ? " (abstained)" : ""}`,
       `- Rationale: ${confidence.rationale}`,
@@ -330,24 +329,16 @@ function App() {
 
             <dl className="readout">
               <div>
-                <dt>Anomaly</dt>
+                <dt>Anomaly index</dt>
                 <dd>
-                  {(result.anomaly.anomaly_score * 100).toFixed(0)}
-                  <small>%</small>
+                  {result.anomaly.anomaly_index.toFixed(2)}
                 </dd>
               </div>
               <div>
-                <dt>Fails in 7d</dt>
+                <dt>Inspect within</dt>
                 <dd>
-                  {(result.anomaly.failure_probability_7d * 100).toFixed(0)}
-                  <small>%</small>
-                </dd>
-              </div>
-              <div>
-                <dt>Window</dt>
-                <dd>
-                  {result.anomaly.predicted_failure_days ?? "None"}
-                  {result.anomaly.predicted_failure_days != null && <small> days</small>}
+                  {result.anomaly.inspection_window_days ?? "No action"}
+                  {result.anomaly.inspection_window_days != null && <small> days</small>}
                 </dd>
               </div>
               <div>

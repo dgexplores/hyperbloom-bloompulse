@@ -46,25 +46,43 @@ install, no account, no fee. A CSV file and a browser is the whole requirement.
 
 | | |
 |---|---|
-| Response time | about 28ms locally, under 100ms live |
-| Tests passing | 44 |
-| Every citation checked against the source text | 15 / 15, 100% |
+| Response time | about 20ms locally, under 100ms live |
+| Tests passing | 52 |
+| Healthy machines correctly reported as normal | 98% (196 / 200) |
+| Sub-threshold drift caught with no limit breached | 90% (18 / 20) |
 | Verdicts matching hand-labelled test cases | 7 / 7, 100% |
+| Every citation checked against the source text | 15 / 15, 100% |
 | Deployed function size | under Vercel's 225MB limit |
 | Cost to run the demo | $0, no key required |
 
 (`make eval` regenerates these from `eval/report.json`, they are measured on
 every CI run, not typed in by hand.)
 
+### What this does not claim
+
+- **No failure probability.** Nothing here is calibrated against failure
+  events, so the API publishes an `anomaly_index` (0 to 1, distance from the
+  machine's own baseline) and an `inspection_window_days` (a policy lookup on
+  severity). An earlier revision published a "7 day failure probability" that
+  was an affine transform of the anomaly score. It was removed.
+- **`span_fidelity` is a parser invariant, not a provenance check.** The spans
+  are parsed out of the same corpus file the check searches, so it can only fail
+  if the parser breaks. Real provenance would need a checked-in reference copy
+  of the published text.
+- **The severity cut is calibrated, not universal.** `eval/calibrate.py` sets it
+  from a measured healthy population. It is valid for machines that look like
+  that population.
+- **Smooth temperature-only drift is the weak case.** Vibration drift and
+  multi-channel drift are caught reliably; a slow thermal ramp that stays under
+  every published limit is not (see §6).
+
 ---
 
 ## Status: what's done, what's left
 
-**Done.** Backend hardened (12 defects fixed, 44 tests), the citation engine
-reads real corpus files and checks its own output against them, the frontend
-was rebuilt around one committed design, it is deployed and verified live, and
-the submission is mapped to the real judging criteria. See section 5 for the
-full list of what was fixed and why.
+**Done.** Backend hardened (12 defects fixed), then a calibration pass that
+found and fixed 6 more (see §5.7). 52 tests, CI, a measured eval, deployed and
+verified live, and the submission mapped to the real judging criteria.
 
 **Left, and only the project owner can finish these:**
 
@@ -87,7 +105,7 @@ submission.
 Sensor CSV (timestamp, temperature_c, vibration_mm_s, [pressure_bar, rpm])
   -> Isolation Forest fitted on the opening slice as a baseline
   -> ISO 10816-3 / NTN threshold gates layered on top
-  -> severity + 7 day failure probability + driving channel
+  -> severity + inspection window + driving channel
   -> offline extractive citations (verbatim span, locator, deep link, version hash)
   -> work order + plain-language summary + confidence, with an abstain floor
 ```
@@ -121,7 +139,7 @@ cd frontend && npm install && npm run dev
 
 ```bash
 # Tests
-PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 44 tests
+PYTHONPATH=. .venv/bin/python -m pytest tests/ -q     # 52 tests
 PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 .venv/bin/python eval/run_eval.py
 
 # Regenerate the sample CSVs
@@ -199,7 +217,7 @@ DESIGN.md           the built visual system
 
 ## 5. Build status
 
-A hardening and redesign pass is **complete**. 44 tests, a measured eval, and CI
+A hardening and redesign pass is **complete**. 52 tests, a measured eval, and CI
 on every push.
 
 ### 5.1 Backend: 12 defects fixed
@@ -271,20 +289,29 @@ version hard-coded `faithfulness: 1.0`.
 
 | Metric | Value | What it means |
 |---|---|---|
-| `span_fidelity` | 1.0 (15/15) | Every returned span found verbatim in the corpus |
+| `healthy_fp_rate` | 0.02 (4/200) | Healthy machines wrongly reported as not normal. This is the number that matters most. |
+| `drift_detection` | 0.90 (18/20) | Sub-threshold drift escalated with no published limit breached. The one thing the model does that the gates cannot. |
 | `severity_accuracy` | 1.0 (7/7) | Agreement with hand-labelled fixtures |
 | `citation_coverage` | 1.0 | Every verdict carries at least one source |
+| `span_fidelity` | 1.0 (15/15) | Spans round-trip through the parser. A parser invariant, not a provenance check. |
 | `abstention_rate` | 0.29 | Only the genuinely ambiguous cases |
-| `latency_ms` p50 | ~40 ms | About 55 to 90ms on the deployed function |
+| `latency_ms` p50 | ~20 ms | About 40 to 70ms on the deployed function |
 
 Fixtures include a stuck flat sensor and a Zone C creep, which are the two cases
 that used to be scored wrong.
+
+The two cuts that decide drift are set by `eval/calibrate.py` from the healthy
+population in `eval/healthy_population.py`, and a test fails if they stop
+matching it, so the score cannot silently drift back to flagging healthy
+machines.
 
 ### 5.5 Infrastructure
 
 - **CI** (`.github/workflows/ci.yml`): pytest, the eval, a manifest-freshness
   check, a requirements-drift check, and `tsc --noEmit && vite build`.
-- Rate limiting on the analyse endpoints, `RATE_LIMIT_PER_MINUTE`, default 60.
+- Rate limiting on the analyse endpoints, `RATE_LIMIT_PER_MINUTE`, default 60,
+  bucketed per forwarded client. `TRUSTED_PROXY_HOPS` declares how many proxies
+  sit in front of the process.
 - `Makefile` rewritten around the real layout.
 - `.gitignore` no longer shadows `.env.example`.
 - `backend/requirements.txt` deleted. It had drifted to different pins
@@ -324,6 +351,36 @@ Verified against the live deployment: verdict, all four citations with real
 digests, the 400 path for a malformed CSV, sample CSV downloads, SPA deep
 links, and mobile layout.
 
+### 5.7 Calibration pass: 6 more defects
+
+A second pass, driven by measuring the tool against healthy machines rather than
+against its own fixtures, found that the score was not calibrated at all.
+
+| # | Defect | Symptom before the fix |
+|---|---|---|
+| 14 | Severity cut sat on the model's noise floor | `agg_score < 0.50` was compared against a score whose healthy distribution peaks at 0.49. **41% of healthy machines were reported as `monitor`.** |
+| 15 | The model's contribution was discarded by the gates | `agg_score = max(gate, forest)` meant a gate breach threw the forest away. The forest's own score was flat at 0.543 across a 3.5 mm/s vibration sweep, so its only reachable effect was to push healthy machines into the false-positive band. |
+| 16 | A "7 day failure probability" that was not one | `failure_probability_7d = score*0.95 + 0.05*(vib/6)`, uncalibrated and unvalidated, shown as "Fails in 7d" on the primary readout. `predicted_failure_days` was a four-value lookup on severity. |
+| 17 | Temperature rise under-reported on short series | The baseline was `mean(temps[:8])`, which on a series shorter than eight was the mean of the whole series. An actual 8.55 C rise was reported as 4.38 C. |
+| 18 | The `synthetic` flag was a substring search | `"synthetic" in section.lower()`. An invented passage attributed to ISO 55000 was presented as published text. |
+| 19 | Rate limiter keyed on the proxy, and grew without bound | Behind Vercel every visitor shared one bucket, so the public demo rate-limited everyone at once. Buckets were never evicted. |
+
+Plus one behavioural fix: `async def upload_csv` called CPU-bound scoring
+directly, which blocks the event loop. It is a sync handler now, so FastAPI runs
+it in its threadpool.
+
+**How drift is measured now.** An Isolation Forest score has no absolute meaning
+— it depends entirely on the series. So the engine asks the model what it thinks
+of the data it was trained on, and treats that as this series' own noise floor.
+Drift is the recent window standing clear of that floor. `eval/calibrate.py`
+sets the two cuts from a measured healthy population
+(`eval/healthy_population.py`), and a test fails if they stop matching it.
+Healthy false positives went from 41% to 2%, and sub-threshold drift with no
+limit breached is still caught 18 times out of 20.
+
+**Cost:** latency p50 rose from about 12ms to about 20ms, because the model is
+now scored twice. Still well inside the budget.
+
 ---
 
 ## 6. What is left
@@ -331,11 +388,24 @@ links, and mobile layout.
 - [ ] **Record `docs/demo.mp4`.** The submission asks for a 90 second video and
       `docs/DEMO_GUIDE.md` is the script for it. This is the only submission
       deliverable still missing.
+- [ ] **Smooth temperature-only drift is the weak case.** Vibration drift and
+      multi-channel drift are caught reliably (18/20 across the fixture set), but
+      a slow thermal ramp that stays under every published limit is not. The
+      temperature features are a level and a rise measured against the opening
+      readings; neither isolates a smooth monotonic ramp well. A rate-of-change
+      feature (C per hour, not C above baseline) is the obvious next step.
 - [ ] Optional: `corpus/sources/*.md` covers three sources. Adding more real
       OSHA and ISO passages costs nothing at runtime and widens coverage.
 - [ ] Optional: the citation selector is rule-based, which is honest and
       deterministic. Semantic retrieval over the corpus would generalise past
       the current three-channel schema.
+- [ ] Optional: `corpus/sources/*.md` is two files and a substring contract.
+      Real provenance would keep a reference copy of each published passage and
+      check spans against that, so `span_fidelity` would mean something.
+- [ ] Optional: `.env.example` and `docker-compose.yml` still declare
+      `LLM_PROVIDER`, `EMBEDDING_PROVIDER`, `VECTOR_STORE`, `APP_ENV`,
+      `OPENAI_API_KEY` and `HF_API_KEY`, none of which any code reads. The same
+      defect class as the deleted `config.py`.
 
 ## 7. Hackathon submission
 
@@ -354,7 +424,7 @@ model at all, and the Isolation Forest is written out in `model/iforest.py`.
 |---|---|---|
 | **Impact & Relevance** | 25% | Predictive maintenance is priced for large plants, and the small manufacturers who carry the same OSHA exposure are the ones without it. This needs a CSV and a browser: no sensors, no gateway, no contract, no key. Every verdict ends in an action and a work order, not a dashboard. |
 | **Innovation & Creativity** | 20% | The output is not a score, it is a **cited verdict**. Each claim carries a verbatim passage, its locator, a deep link and the sha256 of the corpus file it was parsed from, and a test fails if any returned span is not found in the corpus. The interface is a working strip-chart recorder, with ISO limits printed on the paper before data arrives. |
-| **Technical Implementation** | 25% | 44 tests and CI. 12 defects found and fixed, each with a regression test. Isolation Forest implemented on numpy and validated against scikit-learn. Every malformed upload answered with an actionable 400. Deployed and verified end to end. |
+| **Technical Implementation** | 25% | 52 tests and CI. 18 defects found and fixed, each with a regression test. Isolation Forest implemented on numpy and validated against scikit-learn. Every malformed upload answered with an actionable 400. Deployed and verified end to end. |
 | **AI/ML Integration** | 20% | The forest is the product, not a wrapper. It fits each machine's own baseline, and published ISO/NTN thresholds gate the result so a real breach escalates whatever the model thinks. Below the confidence floor it abstains rather than guessing. |
 | **Presentation & Demo** | 10% | Two one-click samples, shareable `?demo=` links that land on a result, screenshots in this README, and `docs/DEMO_GUIDE.md` as a 90 second script. **A recorded video is still outstanding.** |
 

@@ -36,6 +36,11 @@ REQUIRED_COLUMNS = {"timestamp", "temperature_c", "vibration_mm_s"}
 # ever runs multi-process behind a load balancer.
 RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 _hits: dict[str, deque[float]] = {}
+_last_sweep = 0.0
+
+# How many proxies sit between the caller and this process. One on Vercel, where
+# the edge terminates the connection. Set to 0 to ignore forwarded headers.
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1"))
 
 API_KEY = os.getenv("API_KEY", "")
 # Comma-separated allowlist. Default open, because the demo is public and
@@ -55,11 +60,40 @@ app.add_middleware(
 )
 
 
+def _client_ip(request: Request) -> str:
+    """The caller's address, as far as the deployment lets us know it.
+
+    Behind a proxy `request.client.host` is the proxy, so keying on it puts
+    every visitor in one bucket and the public demo rate-limits everybody at
+    once. The forwarded chain is only consulted when the deployment declares
+    that a proxy really is in front of us.
+    """
+    if TRUSTED_PROXY_HOPS > 0:
+        chain = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+        if chain:
+            # Rightmost entries were appended by the closest proxies; the caller
+            # is TRUSTED_PROXY_HOPS places in from the right.
+            index = max(0, len(chain) - TRUSTED_PROXY_HOPS)
+            return chain[index]
+    return request.client.host if request.client else "unknown"
+
+
+def _sweep(now: float) -> None:
+    """Drop buckets that have gone quiet, so the limiter cannot grow forever."""
+    global _last_sweep
+    if now - _last_sweep < 60:
+        return
+    _last_sweep = now
+    for key in [k for k, v in _hits.items() if not v or now - v[-1] > 60]:
+        del _hits[key]
+
+
 def rate_limit(request: Request) -> None:
     if RATE_LIMIT <= 0:
         return
-    client = request.client.host if request.client else "unknown"
+    client = _client_ip(request)
     now = time.monotonic()
+    _sweep(now)
     seen = _hits.setdefault(client, deque())
     while seen and now - seen[0] > 60:
         seen.popleft()
@@ -199,10 +233,16 @@ def _confidence(result: dict) -> Confidence:
             score = 92.0
             rationale = (f"{len(drivers)} independent channels are past their limits "
                          f"({', '.join(drivers)}), and they agree.")
-        else:
+        elif drivers:
             score = 85.0
-            rationale = (f"Vibration {m['max_vib']} mm/s is past the ISO 10816-3 Zone D "
-                         f"shutdown limit of {VIB_ALERT} mm/s.")
+            rationale = (f"{drivers[0].capitalize()} is past its published limit, and no "
+                         f"second channel confirms it yet.")
+        else:
+            # The gates did not fire, so the model did the escalating. Say that,
+            # rather than naming a vibration reading that never crossed anything.
+            score = 78.0
+            rationale = ("Readings have moved clear of this machine's own baseline, "
+                         "though nothing published has been crossed yet.")
     elif severity == "alert":
         score = 84.0
         rationale = (f"{result['contributing_feature'].replace('_', ' ').capitalize()} "
@@ -280,15 +320,14 @@ def analyze(req: PulseRequest) -> PulseResponse:
     anomaly = AnomalyResult(
         equipment_id=req.equipment_id,
         is_anomaly=urgent,
-        anomaly_score=result["anomaly_score"],
-        failure_probability_7d=result["failure_probability_7d"],
-        predicted_failure_days=result["predicted_failure_days"],
+        anomaly_index=result["anomaly_index"],
+        inspection_window_days=result["inspection_window_days"],
         contributing_feature=result["contributing_feature"],
         severity=severity,
         explanation=" ".join([
-            f"Anomaly score {result['anomaly_score']} is driven by {driver}." if urgent
-            else f"Anomaly score {result['anomaly_score']}. The channel closest to its "
-                 f"limit is {driver}, and it is still inside the limit.",
+            f"Anomaly index {result['anomaly_index']} is driven by {driver}." if urgent
+            else f"Anomaly index {result['anomaly_index']}. The channel furthest from its "
+                 f"own baseline is {driver}, and every published limit still holds.",
             f"Vibration {metrics['max_vib']} mm/s, temperature "
             f"{_describe_rise(metrics['max_temp_rise'])}, pressure variance "
             f"{metrics['pressure_var']}%.",
@@ -311,13 +350,16 @@ def analyze(req: PulseRequest) -> PulseResponse:
 
 @app.post("/api/v1/pulse/upload", response_model=PulseResponse,
           dependencies=[Depends(require_api_key), Depends(rate_limit)])
-async def upload_csv(
+def upload_csv(
     file: UploadFile = File(...),
     equipment_id: str = "BRG-05-A",
     equipment_type: EquipmentType = EquipmentType.BEARING,
 ) -> PulseResponse:
-    # Bounded read, so an oversized upload is refused rather than buffered.
-    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    # Deliberately a sync handler. Scoring is CPU-bound, so declaring this
+    # `async def` and calling analyze() from it would block the event loop for
+    # the whole analysis. A sync handler is dispatched to FastAPI's threadpool
+    # instead, which is what keeps concurrent uploads concurrent.
+    raw = file.file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,

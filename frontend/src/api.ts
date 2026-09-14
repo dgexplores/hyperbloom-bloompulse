@@ -27,9 +27,10 @@ export interface Citation {
 export interface Anomaly {
   equipment_id: string;
   is_anomaly: boolean;
-  anomaly_score: number;
-  failure_probability_7d: number;
-  predicted_failure_days: number | null;
+  /** 0..1 index of distance from the machine's own baseline. Not a probability. */
+  anomaly_index: number;
+  /** How soon to inspect. A policy lookup on severity, not a failure prediction. */
+  inspection_window_days: number | null;
   contributing_feature: string;
   severity: Severity;
   explanation: string;

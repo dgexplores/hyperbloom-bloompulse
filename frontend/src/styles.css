@@ -21,9 +21,11 @@
   --pen-temp:     #14654A;
   --pen-press:    #1C4C97;
 
-  /* ISO 10816-3 zones */
+  /* ISO 10816-3 zones. The alert stamp sits between Zone C and Zone D, so it
+     gets its own token rather than a literal in the component. */
   --zone-ab:      #14654A;
   --zone-c:       #B07100;
+  --zone-alert:   #D2600C;
   --zone-d:       #C01228;
 
   --furniture: "Archivo Narrow", "Arial Narrow", ui-sans-serif, sans-serif;

@@ -19,14 +19,15 @@ To skip straight to a result, the demo is linkable:
    2.8 mm/s line and past the solid 4.5 mm/s line into Zone D. The EVENT flag
    marks the sample the verdict turns on.
 
-4. **Read the verdict.** CRITICAL, 82% anomaly, 83% chance of failure inside
-   7 days, 3 day window, driven by temperature rise. Confidence 92%, because
-   two independent channels crossed their limits and agree.
+4. **Read the verdict.** CRITICAL, anomaly index 0.82, inspect within 3 days,
+   driven by temperature rise. Confidence 92%, because two independent channels
+   crossed their limits and agree.
 
 5. **Scroll the authority column.** Four citations. Each carries the verbatim
    span, its locator, the sha256 of the corpus file it was parsed from, a
    Verify link, and one line saying why it was attached to this verdict. The
    NTN excerpt is tagged SYNTHETIC EXCERPT, because it was written for the demo.
+   The OSHA sections are not, because they are real published text.
 
 6. **Click "Export work order".** A markdown work order downloads with the
    action, parts, downtime, lockout flag and every citation.

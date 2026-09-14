@@ -6,7 +6,7 @@ BloomPulse reads a plain CSV of industrial sensor readings and returns a bounded
 verdict on a machine's condition, with every claim anchored to a verbatim,
 locatable passage in a published standard.
 
-Upload a file. Get a severity, a failure window, a root-cause channel, a work
+Upload a file. Get a severity, an inspection window, a root-cause channel, a work
 order, and the citations that justify all of it. No sensors to install, no
 gateway, no vendor contract, no API key.
 

@@ -25,8 +25,12 @@ class Citation(BaseModel):
     # Why this passage was attached to this particular verdict.
     applies_to: str | None = None
     # True where the excerpt was written for the demo rather than taken from a
-    # published document. Surfaced in the UI so it is never mistaken for real.
-    synthetic: bool = False
+    # published document. The default is True on purpose: a passage has to
+    # declare its published provenance (see corpus/sources/*.md) to be shown as
+    # published text. The old default was False, cleared by the literal string
+    # "synthetic" appearing anywhere in the section, so an invented passage that
+    # did not use that word was presented as a standard.
+    synthetic: bool = True
 
 class Confidence(BaseModel):
     score: float = Field(ge=0, le=100)
@@ -45,9 +49,14 @@ class SensorReading(BaseModel):
 class AnomalyResult(BaseModel):
     equipment_id: str
     is_anomaly: bool
-    anomaly_score: float = Field(ge=0, le=1)
-    failure_probability_7d: float = Field(ge=0, le=1)
-    predicted_failure_days: int | None = None
+    # 0..1 index of how far the machine has moved from its own baseline. It is
+    # deliberately NOT called a probability: nothing in this project is
+    # calibrated against failure events, so a probability claim could not be
+    # supported.
+    anomaly_index: float = Field(ge=0, le=1)
+    # How soon the verdict says to look at the machine. A policy lookup on
+    # severity, not a prediction of when failure occurs.
+    inspection_window_days: int | None = None
     contributing_feature: str
     severity: Literal["normal", "monitor", "alert", "critical"]
     explanation: str
