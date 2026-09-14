@@ -85,9 +85,14 @@ def _parse_document(path: Path) -> dict[str, Citation]:
         locator_match = re.search(r"^\*\*Locator:\*\*\s*(.+)$", section, re.MULTILINE)
         source_match = re.search(r"(https?://\S+)", section)
 
-        # A source line that flags itself as written for the demo is carried
-        # through to the response rather than quietly dropped.
-        synthetic = "synthetic" in section.lower()
+        # Provenance is opt-in. A section is treated as demo-written unless it
+        # says otherwise, so the failure mode is a real passage being labelled
+        # synthetic rather than an invented one being shown as a standard. The
+        # previous rule searched the section for the literal word "synthetic",
+        # which an invented passage could simply avoid using.
+        published = re.search(r"^\*\*Provenance:\*\*\s*published\s*$",
+                              section, re.MULTILINE | re.IGNORECASE)
+        synthetic = published is None
 
         slug = re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")[:48]
         found[heading] = Citation(

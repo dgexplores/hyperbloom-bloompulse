@@ -1,19 +1,19 @@
 {
   "version": "bloompulse-2026.08.31-v1",
-  "corpus_hash": "sha256:2b271d978f8cbcd61c095630d17d2b172b474bd782cd1478f962aab8a2333588",
-  "generated_at": "2026-08-31T16:16:48+00:00",
+  "corpus_hash": "sha256:20173d75039d88e61caee9aa3addc7fae925600f836b6563576bab9b33462ca3",
+  "generated_at": "2026-09-14T14:16:08+00:00",
   "sources": [
     {
       "doc_id": "manufacturer-manual",
       "path": "corpus/sources/manufacturer_manual.md",
-      "sha256": "d82232eeed9ee7a95d46c27195ed0ed939f6ee1a1374b0727d5e0cbe393500f1",
-      "bytes": 1208
+      "sha256": "826400d27361e396566a3e54a914c07588a92607a685a50be4bd19975df303b6",
+      "bytes": 942
     },
     {
       "doc_id": "osha-1910-maintenance",
       "path": "corpus/sources/osha_1910_maintenance.md",
-      "sha256": "2738fa8b84317102d507f797b71e7aa632a42a081b947e5e056c1dd8fccaf135",
-      "bytes": 2272
+      "sha256": "40f1e66beadd1c61a7eb220f6c8c90cbbdce8db2058e9082de340b7b8daa4db8",
+      "bytes": 2390
     }
   ],
   "retrieval": "offline extractive, spans parsed verbatim from the files above",

@@ -12,10 +12,4 @@
 > "Pressure seal integrity: variance <8% normal, 8-12% monitor, >12% replace seal within 48h. Combined anomaly score >0.72 indicates 85% probability of failure within 7 days."
 
 **Locator:** Siemens Simotics SD100 p.112
-**Source:** https://assets.siemens.com - synthetic
-
-## Maintenance Work Order Template
-> "Work Order must include: Equipment ID, Anomaly score, Cited regulation (OSHA/ISO), Recommended action, Parts required, Estimated downtime, Safety lockout required (1910.147)."
-
-**Locator:** ISO 55000 Asset Management
-**Source:** https://www.iso.org/standard/55000
+**Source:** https://assets.siemens.com - written for this demo, not a published excerpt
