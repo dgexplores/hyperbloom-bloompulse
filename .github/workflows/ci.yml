@@ -25,9 +25,7 @@ jobs:
 
       - name: Corpus manifest is current
         run: |
-          PYTHONPATH=. python corpus/build_manifest.py
-          git diff --exit-code corpus/manifest.json \
-            || (echo "::error::corpus/manifest.json is stale. Run: PYTHONPATH=. python corpus/build_manifest.py" && exit 1)
+          PYTHONPATH=. python corpus/build_manifest.py --check
 
   frontend:
     runs-on: ubuntu-latest
