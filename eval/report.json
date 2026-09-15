@@ -7,11 +7,11 @@
   "severity_accuracy": 1.0,
   "healthy_fp_rate": 0.02,
   "healthy_population": 200,
-  "drift_detection": 0.9,
+  "drift_detection": 1.0,
   "drift_fixtures": 20,
   "abstention_rate": 0.2857,
-  "latency_ms_p50": 19.2,
-  "latency_ms_p95": 19.9,
+  "latency_ms_p50": 15.1,
+  "latency_ms_p95": 15.7,
   "detail": [
     {
       "fixture": "healthy steady",

@@ -12,14 +12,18 @@ gateway, no vendor contract, no API key.
 
 ## Mechanism
 
-Two layers that check each other:
+Three layers that check each other:
 
-1. An Isolation Forest fits the opening slice of the series as a baseline and
-   scores how far the recent window has drifted from it. It is implemented
-   directly on numpy in `model/iforest.py`, because scikit-learn plus scipy
-   does not fit inside the deployment's function size limit.
+1. Two independent drift instruments fit the opening slice of the series as a
+   baseline. An Isolation Forest scores how far the recent window has drifted
+   from it — good at a channel that has gone erratic. A per-channel trend test
+   measures how far the recent window has moved in units of how much that channel
+   normally wanders — good at one that has simply moved, including a slow ramp
+   the forest structurally cannot see. Both are implemented directly on numpy in
+   `model/`, because scikit-learn plus scipy does not fit inside the deployment's
+   function size limit.
 2. Fixed thresholds from ISO 10816-3 and the NTN bearing manual gate the result,
-   so a genuine physical breach escalates whatever the unsupervised model thinks.
+   so a genuine physical breach escalates whatever the unsupervised models think.
 
 Retrieval is offline and extractive against a git-tracked corpus, so the tool
 quotes a standard rather than paraphrasing one. A verdict it cannot support
@@ -54,7 +58,7 @@ holding the wrench, or pasted into a CMMS ticket.
 - FastAPI plus a React/Vite single page, deployed on Vercel as static assets
   and one Python serverless function.
 - The function budget is 225MB, which rules out scipy and therefore scikit-learn.
-- CPU-only inference, no GPU and no external model call. About 40ms locally
+- CPU-only inference, no GPU and no external model call. About 15ms locally
   and under 100ms on the deployed function.
 - Max 500 rows, 2MB per upload.
 - MIT licensed. Corpus is public-domain or fair-use excerpt, tracked in a manifest.

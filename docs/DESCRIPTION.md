@@ -28,15 +28,22 @@ an inspector.
 
 ## How the AI works
 
-Two layers that check each other.
+Three layers that check each other.
 
-An Isolation Forest fits the opening slice of each series as that machine's own
-baseline and scores how far the recent window has drifted from it. I implemented
-it directly on numpy, because scikit-learn pulls in scipy and the three together
-exceed the deployment's 225MB function limit. It is validated against
-scikit-learn's implementation in the test suite: identical normalising constant,
-at least 90% overlap on the most anomalous points, and score correlation above
-0.9.
+Two independent drift instruments fit the opening slice of each series as that
+machine's own baseline. An Isolation Forest scores how far the recent window has
+drifted from it — good at a channel that has gone erratic. A per-channel trend
+test measures how far the recent window has moved in units of how much that
+channel normally wanders — good at one that has simply moved, including a slow
+ramp that a forest structurally cannot see, because every point on a ramp looks
+ordinary next to the one before it. Neither covers both cases; together they
+catch all twenty drift fixtures with no limit breached.
+
+The forest is implemented directly on numpy, because scikit-learn pulls in scipy
+and the three together exceed the deployment's 225MB function limit. It is
+validated against scikit-learn's implementation in the test suite: identical
+normalising constant, at least 90% overlap on the most anomalous points, and
+score correlation above 0.9.
 
 Fixed thresholds from ISO 10816-3 and manufacturer manuals then gate the result,
 so a genuine physical breach escalates whatever the unsupervised model thinks,
@@ -55,13 +62,15 @@ reported 41% of healthy machines as drifting.
 
 ## State
 
-Deployed and working, 52 tests, CI, and an eval that measures the healthy
+Deployed and working, 55 tests, CI, and an eval that measures the healthy
 false-positive rate, sub-threshold drift detection, span fidelity and severity
-accuracy against labelled fixtures rather than asserting them. Eighteen defects
-were found and fixed across two passes, including an engine that leaked one
-machine's baseline into the next request and a published "failure probability"
-that was an uncalibrated affine transform of the anomaly score. That number is
-gone: the API publishes an anomaly index and an inspection window instead, and
-says in the README why it will not claim a probability it cannot support.
+accuracy against labelled fixtures rather than asserting them. Twenty-one
+numbered defects were found and fixed across three passes, including an engine
+that leaked one machine's baseline into the next request, a published "failure
+probability" that was an uncalibrated affine transform of the anomaly score, and
+a severity cut that sat exactly on the model's own noise floor and so reported
+41% of healthy machines as drifting. That number is gone: the API publishes an
+anomaly index and an inspection window instead, and says in the README why it
+will not claim a probability it cannot support.
 
 Built with FastAPI, React and numpy. MIT licensed.

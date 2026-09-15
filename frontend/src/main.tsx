@@ -125,7 +125,9 @@ function App() {
       "## Authority",
       "",
       ...citations.flatMap((c, i) => [
-        `${i + 1}. **${c.title}**`,
+        `${i + 1}. **${c.title}**${
+          c.synthetic ? "  [SYNTHETIC EXCERPT — written for this demo, not a published document]" : ""
+        }`,
         `   > ${c.span_text}`,
         `   ${c.locator} · ${c.deep_link} · ${c.version_hash}`,
         "",
@@ -423,7 +425,7 @@ function App() {
                     )}
                     <span className="hash">{citation.version_hash}</span>
                     <a href={citation.deep_link} target="_blank" rel="noreferrer noopener">
-                      Verify at source
+                      {citation.synthetic ? "Source document" : "Verify at source"}
                     </a>
                   </p>
                 </li>

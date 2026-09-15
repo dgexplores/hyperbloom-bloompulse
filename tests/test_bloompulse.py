@@ -296,13 +296,13 @@ def test_the_drift_cut_still_matches_the_population_it_was_set_from():
 
 
 def test_the_model_escalates_drift_that_no_published_limit_catches():
-    """The forest has to earn its place. A machine drifting clear of its own
+    """The model has to earn its place. A machine drifting clear of its own
     baseline escalates before anything published is crossed, which is the one
-    thing the model does that the threshold gates cannot."""
+    thing the threshold gates cannot do."""
     import numpy as np
 
     from model.anomaly import (
-        DRIFT_MONITOR, TEMP_RISE_THRESHOLD, VIB_NORMAL, BloomPulseAnomaly,
+        TEMP_RISE_THRESHOLD, TREND_MONITOR, VIB_NORMAL, BloomPulseAnomaly,
     )
 
     rng = np.random.default_rng(0)
@@ -321,10 +321,12 @@ def test_the_model_escalates_drift_that_no_published_limit_catches():
     assert result["gate_breached"] == [], result["gate_breached"]
     assert result["metrics"]["max_vib"] < VIB_NORMAL
     assert result["metrics"]["max_temp_rise"] < TEMP_RISE_THRESHOLD
-    # ...and the model is the reason the verdict is not "normal".
-    assert engine.last_drift is not None
-    assert engine.last_drift > DRIFT_MONITOR
+    # ...and a model instrument is the reason the verdict is not "normal".
+    assert engine.last_trend_z is not None
+    assert engine.last_trend_z > TREND_MONITOR
     assert result["severity"] == "monitor"
+    # The channel named is the one that moved, and it is not vibration here.
+    assert result["contributing_feature"] == "temperature_rise"
 
 
 def test_temperature_rise_is_measured_from_the_start_of_the_series():
@@ -340,6 +342,65 @@ def test_temperature_rise_is_measured_from_the_start_of_the_series():
     reported = result["metrics"]["max_temp_rise"]
     assert reported > actual * 0.8, (
         f"reported {reported} C for an actual rise of {actual} C"
+    )
+
+
+def test_the_trend_cut_still_matches_the_population_it_was_set_from():
+    """The trend cut is measured from the same healthy population as the forest
+    cut, and a test fails if either stops matching it."""
+    from eval.healthy_population import population
+    from model.anomaly import TREND_MONITOR, BloomPulseAnomaly
+
+    zs = []
+    for readings in population(200):
+        engine = BloomPulseAnomaly()
+        engine.score(readings)
+        if engine.last_trend_z is not None:
+            zs.append(engine.last_trend_z)
+    assert zs, "no series in the healthy population could be modelled"
+    crossed = sum(z > TREND_MONITOR for z in zs) / len(zs)
+    assert crossed <= 0.05, (
+        f"{crossed:.1%} of the healthy population crossed TREND_MONITOR "
+        f"({TREND_MONITOR}). Re-run eval/calibrate.py and update the constants."
+    )
+
+
+def test_a_smooth_thermal_ramp_is_caught():
+    """The case an Isolation Forest structurally cannot see: every point on a
+    slow ramp looks ordinary next to the one before it, so a machine heating
+    steadily for days used to score as normal. The trend test catches it, and it
+    is the reason that instrument exists."""
+    from model.anomaly import TEMP_RISE_THRESHOLD
+
+    readings = [{
+        "timestamp": f"2026-08-20T{i // 60:02d}:{i % 60:02d}:00",
+        "equipment_id": "BRG-05-A",
+        "temperature_c": 50.0 + 0.30 * i,
+        "vibration_mm_s": 2.0,
+        "pressure_bar": 5.0,
+    } for i in range(40)]
+
+    result = score_readings(readings)
+
+    # A steady 11.4 C climb, under the 15 C published trigger, so the gates stay
+    # silent and the model has to carry it.
+    assert result["gate_breached"] == [], result["gate_breached"]
+    assert result["metrics"]["max_temp_rise"] < TEMP_RISE_THRESHOLD
+    assert result["severity"] != "normal", result
+    assert result["contributing_feature"] == "temperature_rise", result
+
+
+def test_a_flat_machine_with_ordinary_noise_stays_normal():
+    """The trend test must not fire on noise. This is the same budget as the
+    forest cut, asserted through the whole pipeline."""
+    import numpy as np
+
+    from eval.healthy_population import healthy_series
+
+    severities = [score_readings(healthy_series(seed))["severity"] for seed in range(100)]
+    drifting = sum(s != "normal" for s in severities)
+    assert drifting / len(severities) <= 0.05, (
+        f"{drifting}/100 healthy machines were reported as drifting"
     )
 
 

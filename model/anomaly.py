@@ -23,7 +23,7 @@ REFERENCE_READINGS = 3  # opening readings that define the temperature baseline
 
 # Drift is the recent window standing clear of THIS series' own noise floor,
 # not a distance from a universal constant. See score() for the measurement and
-# eval/calibrate.py for the population these two cuts are set from.
+# eval/calibrate.py for the population these cuts are set from.
 #
 # DRIFT_MONITOR is the 98th percentile of the healthy population, so a healthy
 # machine crosses it 2% of the time. DRIFT_ALERT is five times the largest drift
@@ -31,6 +31,22 @@ REFERENCE_READINGS = 3  # opening readings that define the temperature baseline
 # real movement. Re-run eval/calibrate.py after anything that moves the score.
 DRIFT_MONITOR = -0.01
 DRIFT_ALERT = 0.10
+
+# A second, independent drift instrument: signal-to-noise of the recent window
+# against the opening window, per channel.
+#
+# The forest cannot see a smooth ramp. An Isolation Forest isolates points that
+# are unlike their neighbours, and every point on a slow ramp looks ordinary next
+# to the one before it, so a machine heating steadily for two days scored as
+# normal. This measures the thing a technician actually reads off a chart: has
+# this channel moved further than it normally wanders?
+#
+# Measured over 400 healthy machines the largest value any of them produced was
+# 5.13, and over the drift fixtures the smallest was 12.14, so the cut sits in a
+# wide empty band rather than on a cliff edge. eval/calibrate.py prints both.
+TREND_OPENING = 8       # readings that define "how it normally wanders"
+TREND_MONITOR = 6.2
+TREND_ALERT = 20.5
 
 FEATURES = ("temperature_c", "vibration_mm_s", "pressure_bar",
             "vib_rolling_mean", "temp_rise", "pressure_variance_pct")
@@ -53,6 +69,7 @@ class BloomPulseAnomaly:
         # eval/calibrate.py can set the cuts from the measurement itself rather
         # than from the severity it produces.
         self.last_drift: float | None = None
+        self.last_trend_z: float | None = None
 
     def _features(self, readings: list[dict]) -> np.ndarray:
         """6-dim feature matrix, one row per reading. See FEATURES."""
@@ -79,6 +96,24 @@ class BloomPulseAnomaly:
         pressure_var = np.abs(pressures - mean_pressure) / denom * 100
 
         return np.column_stack([temps, vibs, pressures, vib_roll, temp_rise, pressure_var])
+
+    def _trend(self, X: np.ndarray) -> dict[str, float]:
+        """Per-channel signal-to-noise of the recent window against the opening.
+
+        How far the recent window has moved, in units of how much this channel
+        normally wanders. Scale free, per series, and it does not care whether
+        the movement is a step or a slow ramp.
+        """
+        opening = X[:TREND_OPENING]
+        recent = X[-RECENT_WINDOW:]
+        spread = opening.std(axis=0)
+        spread = np.where(spread > 1e-9, spread, np.nan)
+        z = np.nan_to_num((recent.mean(axis=0) - opening.mean(axis=0)) / spread, nan=0.0)
+        return {
+            "vibration": float(z[I_VIB]),
+            "temperature_rise": float(z[I_TEMP]),
+            "pressure_variance": float(z[I_PRESS]),
+        }
 
     def score(self, readings: list[dict]) -> dict:
         if not readings:
@@ -111,6 +146,12 @@ class BloomPulseAnomaly:
         else:
             drift = None
         self.last_drift = drift
+
+        # The second instrument. Both are combined below: the forest is good at
+        # a channel that has gone erratic, the trend test is good at one that has
+        # simply moved, and neither alone covers both.
+        trend = self._trend(X)
+        self.last_trend_z = max(abs(v) for v in trend.values()) if modeled else None
 
         recent = X[-RECENT_WINDOW:]
         max_vib = float(recent[:, I_VIB].max())
@@ -145,6 +186,11 @@ class BloomPulseAnomaly:
                 drift_floor = 0.78
             elif drift > DRIFT_MONITOR:
                 drift_floor = 0.58
+        if self.last_trend_z is not None:
+            if self.last_trend_z > TREND_ALERT:
+                drift_floor = max(drift_floor, 0.78)
+            elif self.last_trend_z > TREND_MONITOR:
+                drift_floor = max(drift_floor, 0.58)
 
         agg_score = float(np.clip(max(gate_floor, drift_floor), 0.0, 1.0))
 
@@ -165,18 +211,9 @@ class BloomPulseAnomaly:
             contrib = max(breached.items(), key=lambda kv: kv[1])[0]
         elif modeled:
             # Nothing published is crossed, so the driver is whichever channel
-            # has moved furthest from its own baseline, in units of its own
-            # normal variation. An attribution, not a limit ratio.
-            centre = fit_slice.mean(axis=0)
-            spread = fit_slice.std(axis=0)
-            spread = np.where(spread > 1e-9, spread, 1.0)
-            z = (recent.mean(axis=0) - centre) / spread
-            contrib = max(
-                {"vibration": z[I_VIB],
-                 "temperature_rise": z[I_RISE],
-                 "pressure_variance": z[I_PVAR]}.items(),
-                key=lambda kv: abs(kv[1]),
-            )[0]
+            # has moved furthest from how it normally wanders. An attribution,
+            # not a limit ratio.
+            contrib = max(trend.items(), key=lambda kv: abs(kv[1]))[0]
         else:
             contrib = "vibration"
 
@@ -185,6 +222,7 @@ class BloomPulseAnomaly:
             # probability, and named so that nobody reads it as one.
             "anomaly_index": round(agg_score, 3),
             "drift": round(drift, 4) if drift is not None else None,
+            "trend_z": round(self.last_trend_z, 2) if self.last_trend_z is not None else None,
             "gate_breached": sorted(breached),
             # A policy lookup on severity, not a prediction. See README.
             "inspection_window_days": days,
