@@ -129,7 +129,8 @@ ol, ul { padding: 0; list-style: none; }
   font-weight: 600;
   font-size: 10px;
 }
-.plate dd { margin: 1px 0 0; font-weight: 600; }
+.plate dd { margin: 1px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.plate dd .digest { color: var(--ink-soft); font-weight: 400; }
 
 /* ---------- Load control, a ruled form field on the header --------------- */
 

@@ -269,6 +269,11 @@ Previously the citation spans were hard-coded in a Python dict and
   from.
 - `corpus/build_manifest.py` regenerates the manifest with real digests, and CI
   fails if the manifest and the files disagree.
+- `corpus_version` on every response is the declared label **plus a short rollup
+  digest** over all source files, e.g. `bloompulse-2026.08.31-v1+a1b2c3d4`. The
+  label alone is hand-written and cannot distinguish two corpora — edit a source
+  file and it stays put — so the digest is what makes the version identify its
+  content. A test pins the two together.
 - A test asserts **every span appears verbatim in a corpus file**. A span that
   is not in the corpus was invented, and the suite catches it.
 - Excerpts written for the demo are flagged `synthetic` and render with a

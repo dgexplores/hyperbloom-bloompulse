@@ -30,8 +30,19 @@ logger = logging.getLogger("bloompulse")
 
 @lru_cache(maxsize=1)
 def corpus_version() -> str:
+    """The declared label plus a short content hash, e.g. `bloompulse-...-v1+a1b2c3d4`.
+
+    The label alone is a hand-written string, so it cannot tell two corpora
+    apart: edit a source file and the label stays put. The manifest already
+    carries a rollup digest over every source file, so the version reports that
+    too. Anyone keying off the version now sees it move when the text moves.
+    """
     try:
-        return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["version"]
+        manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        label = manifest["version"]
+        rollup = manifest.get("corpus_hash", "")
+        digest = rollup.split(":", 1)[-1][:8]
+        return f"{label}+{digest}" if digest else label
     except (OSError, json.JSONDecodeError, KeyError):
         logger.warning("corpus manifest unreadable at %s, using fallback", MANIFEST_PATH)
         return FALLBACK_VERSION

@@ -175,11 +175,19 @@ function App() {
           <dl className="plate">
             <div>
               <dt>Instrument</dt>
-              <dd>Isolation Forest + ISO gates</dd>
+              <dd>Isolation Forest + trend test + ISO gates</dd>
             </div>
             <div>
               <dt>Corpus</dt>
-              <dd>{result?.corpus_version ?? CORPUS_FALLBACK}</dd>
+              <dd>
+                {(result?.corpus_version ?? CORPUS_FALLBACK).split("+")[0]}
+                {(result?.corpus_version ?? "").includes("+") && (
+                  <span className="digest">
+                    {" +"}
+                    {result?.corpus_version?.split("+")[1]}
+                  </span>
+                )}
+              </dd>
             </div>
             <div>
               <dt>Chart speed</dt>

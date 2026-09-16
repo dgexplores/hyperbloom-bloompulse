@@ -167,6 +167,33 @@ def test_manifest_digests_match_the_files_on_disk():
         )
 
 
+def test_reported_corpus_version_tracks_the_corpus_content():
+    """The version the API reports has to move when the corpus text moves.
+
+    The declared label is hand-written, so on its own it cannot distinguish two
+    corpora: edit a source file and the label stays put. The reported version
+    therefore carries the manifest's rollup digest, and this test pins the two
+    together so a refactor cannot quietly drop the digest and go back to
+    publishing a version that does not identify its content.
+    """
+    import json
+    from pathlib import Path
+
+    from backend.app.rag.citations import corpus_version
+
+    root = Path(__file__).resolve().parent.parent
+    manifest = json.loads((root / "corpus" / "manifest.json").read_text())
+
+    reported = corpus_version()
+    digest = manifest["corpus_hash"].split(":", 1)[-1][:8]
+
+    assert reported.startswith(manifest["version"]), reported
+    assert digest in reported, (
+        f"corpus_version() = {reported!r} does not carry the corpus digest "
+        f"{digest!r}, so it cannot tell two corpora apart"
+    )
+
+
 def test_every_span_is_verbatim_from_a_corpus_file():
     """The anti-hallucination guarantee. A span that is not in the corpus was
     written by someone rather than quoted."""
