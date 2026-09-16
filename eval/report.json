@@ -1,5 +1,5 @@
 {
-  "corpus_version": "bloompulse-2026.08.31-v1+20173d75",
+  "corpus_version": "bloompulse-2026.08.31-v1+cc5914f8",
   "fixtures": 7,
   "span_fidelity": 1.0,
   "spans_checked": 15,
@@ -10,8 +10,8 @@
   "drift_detection": 1.0,
   "drift_fixtures": 20,
   "abstention_rate": 0.2857,
-  "latency_ms_p50": 24.9,
-  "latency_ms_p95": 30.5,
+  "latency_ms_p50": 33.1,
+  "latency_ms_p95": 36.3,
   "detail": [
     {
       "fixture": "healthy steady",

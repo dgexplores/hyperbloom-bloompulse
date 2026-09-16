@@ -1,10 +1,10 @@
 # OSHA 29 CFR 1910 - Maintenance & Machine Guarding (Excerpts for BloomPulse)
 
 ## Sec 1910.147 - Control of Hazardous Energy (Lockout/Tagout)
-> "The employer shall establish a program and utilize procedures for affixing appropriate lockout devices or tagout devices to energy isolating mechanisms... Procedures shall be developed, documented and utilized for the control of potentially hazardous energy when employees are engaged in activities covered by this section."
-**Locator:** Sec 1910.147(c)(4) - p.2 para 1
+> "This section requires employers to establish a program and utilize procedures for affixing appropriate lockout devices or tagout devices to energy isolating devices, and to otherwise disable machines or equipment to prevent unexpected energization, start-up or release of stored energy in order to prevent injury to employees."
+**Locator:** Sec 1910.147(a)(3)(i) - Purpose
 **Source:** https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.147
-**Version:** osha-2024-v1
+**Verified:** 2026-09-17, verbatim against the OSHA page above
 **Provenance:** published
 
 ## Sec 1910.212 - General Requirements for All Machines
@@ -13,10 +13,11 @@
 **Source:** https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.212
 **Provenance:** published
 
-## Sec 1910.219 - Mechanical Power-Transmission Apparatus
-> "When the periphery of the blades of a fan is less than seven (7) feet above the floor or working level, the blades shall be guarded. The guard shall have openings no larger than one-half (1/2) inch."
-**Locator:** Sec 1910.219(p) - fan blade guarding
-**Source:** https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.219
+## Sec 1910.212(a)(5) - Exposure of Blades (Fan Guarding)
+> "When the periphery of the blades of a fan is less than seven (7) feet above the floor or working level, the blades shall be guarded. The guard shall have openings no larger than one-half (½) inch."
+**Locator:** Sec 1910.212(a)(5) - Exposure of blades
+**Source:** https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.212
+**Verified:** 2026-09-17, verbatim against the OSHA page above. Previously filed under 1910.219(p), which is "Care of equipment" and contains no fan-blade provision.
 **Provenance:** published
 
 ## OSHA Directive CPL 02-00-147 - Vibration Thresholds (Predictive Maintenance)

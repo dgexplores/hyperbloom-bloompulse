@@ -194,6 +194,66 @@ def test_reported_corpus_version_tracks_the_corpus_content():
     )
 
 
+def test_published_spans_are_verbatim_in_the_reference_text():
+    """A `published` marker claims the span is quoted, not written.
+
+    The span-fidelity test checks a span appears in the corpus file it was
+    parsed from. That is circular — a paraphrase or an invention written into
+    that same file passes it just as easily, which is how a stitched paraphrase
+    of 1910.147 and a fan-guarding passage filed under the wrong standard both
+    sat behind `**Provenance:** published` unnoticed.
+
+    This checks every published span against a checked-in copy of the source
+    text instead, so a paraphrase cannot hide behind the marker, and any later
+    edit to a published span fails the suite. Synthetic passages are exempt:
+    they make no claim to be quoted.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    sources = root / "corpus" / "sources"
+    reference_dir = root / "corpus" / "reference"
+
+    reference_files = sorted(reference_dir.glob("*.md"))
+    assert reference_files, f"no reference text in {reference_dir}"
+    reference = " ".join(p.read_text(encoding="utf-8") for p in reference_files)
+    reference = re.sub(r"\s+", " ", reference)
+
+    checked = 0
+    for path in sorted(sources.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for section in re.split(r"^##\s+", text, flags=re.MULTILINE)[1:]:
+            if not re.search(
+                r"^\*\*Provenance:\*\*\s*published\s*$",
+                section,
+                re.MULTILINE | re.IGNORECASE,
+            ):
+                continue
+
+            heading = section.splitlines()[0].strip()
+            quote_lines = [
+                line.lstrip("> ").strip()
+                for line in section.splitlines()[1:]
+                if line.lstrip().startswith(">")
+            ]
+            span = " ".join(quote_lines).strip().strip('"').strip()
+            span = re.sub(r"\s+", " ", span)
+
+            assert span, f"{path.name}: {heading} is published with no span"
+            assert span in reference, (
+                f"{path.name}: the span under {heading!r} is marked published but "
+                f"is not verbatim in corpus/reference/.\n  span: {span[:140]}...\n"
+                "Either correct the quote or drop the published marker."
+            )
+            checked += 1
+
+    assert checked >= 3, (
+        f"only {checked} published spans found; the OSHA set has 3. A published "
+        "marker that was silently dropped weakens the guarantee this test makes."
+    )
+
+
 def test_every_span_is_verbatim_from_a_corpus_file():
     """The anti-hallucination guarantee. A span that is not in the corpus was
     written by someone rather than quoted."""
