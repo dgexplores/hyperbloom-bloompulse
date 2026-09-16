@@ -65,10 +65,12 @@ every CI run, not typed in by hand.)
   machine's own baseline) and an `inspection_window_days` (a policy lookup on
   severity). An earlier revision published a "7 day failure probability" that
   was an affine transform of the anomaly score. It was removed.
-- **`span_fidelity` is a parser invariant, not a provenance check.** The spans
-  are parsed out of the same corpus file the check searches, so it can only fail
-  if the parser breaks. Real provenance would need a checked-in reference copy
-  of the published text.
+- **`span_fidelity` has two tests.** The parser-invariant test (15/15) checks a
+  span against the file it was parsed from, which is circular. The second test
+  checks every `**Provenance:** published` span against a checked-in reference
+  copy of the source text (`corpus/reference/`). A paraphrase cannot sit behind
+  a published marker unnoticed, and any later edit to a published span fails the
+  suite. `tsc --noEmit` is also in the build.
 - **The severity cut is calibrated, not universal.** `eval/calibrate.py` sets it
   from a measured healthy population. It is valid for machines that look like
   that population.
@@ -309,7 +311,7 @@ version hard-coded `faithfulness: 1.0`.
 | `drift_detection` | 1.0 (20/20) | Sub-threshold drift escalated with no published limit breached. The one thing the model does that the gates cannot. |
 | `severity_accuracy` | 1.0 (7/7) | Agreement with hand-labelled fixtures |
 | `citation_coverage` | 1.0 | Every verdict carries at least one source |
-| `span_fidelity` | 1.0 (15/15) | Spans round-trip through the parser. A parser invariant, not a provenance check. |
+| `span_fidelity` | 1.0 (15/15) | Spans round-trip through the parser, plus every published span is checked against a checked-in reference copy of the source text. A paraphrase cannot sit behind a published marker. |
 | `abstention_rate` | 0.29 | Only the genuinely ambiguous cases |
 | `latency_ms` p50 | ~15 ms | About 40 to 70ms on the deployed function |
 
@@ -448,13 +450,13 @@ now scored twice. Still well inside the budget.
 - [ ] Optional: the citation selector is rule-based, which is honest and
       deterministic. Semantic retrieval over the corpus would generalise past
       the current three-channel schema.
-- [ ] Optional: `corpus/sources/*.md` is two files and a substring contract.
-      Real provenance would keep a reference copy of each published passage and
-      check spans against that, so `span_fidelity` would mean something.
-- [ ] Optional: `.env.example` and `docker-compose.yml` still declare
-      `LLM_PROVIDER`, `EMBEDDING_PROVIDER`, `VECTOR_STORE`, `APP_ENV`,
-      `OPENAI_API_KEY` and `HF_API_KEY`, none of which any code reads. The same
-      defect class as the deleted `config.py`.
+- [x] **Done — provenance reference.** `corpus/reference/osha_1910_verified.md`
+      holds the checked-in verbatim text of each published passage, and
+      `test_published_spans_are_verbatim_in_the_reference_text` asserts every
+      `published` span appears verbatim in it. The two paraphrased/misattributed
+      passages in the OSHA corpus were corrected in the same pass.
+- [x] **Done — dead env vars.** `.env.example` and `docker-compose.yml` no
+      longer declare variables the app never reads.
 
 ## 7. Hackathon submission
 
