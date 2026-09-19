@@ -2,7 +2,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class EquipmentType(str, Enum):
     BEARING = "bearing"
@@ -85,3 +85,16 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = "0.1.0-pulse"
     corpus_version: str = "bloompulse-2026.08.31-v1"
+
+
+class Asset(BaseModel):
+    id: str
+    name: str
+    rpm: int = 1750
+    bearing_type: str = "6205"
+    install_date: str | None = None
+    baseline: dict = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)

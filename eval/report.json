@@ -10,8 +10,8 @@
   "drift_detection": 1.0,
   "drift_fixtures": 20,
   "abstention_rate": 0.2857,
-  "latency_ms_p50": 18.8,
-  "latency_ms_p95": 28.5,
+  "latency_ms_p50": 16.4,
+  "latency_ms_p95": 17.1,
   "detail": [
     {
       "fixture": "healthy steady",

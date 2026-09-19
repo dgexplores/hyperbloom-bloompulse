@@ -14,9 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.app.models.schemas import (
-    AnomalyResult, Confidence, EquipmentType, HealthResponse,
+    AnomalyResult, Asset as AssetSchema, Confidence, EquipmentType, HealthResponse,
     PulseRequest, PulseResponse, SensorReading,
 )
+from backend.app.assets import AssetRegistry
 from backend.app.rag.citations import citations_for, corpus_version
 from model.anomaly import (
     PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
@@ -58,6 +59,9 @@ app.add_middleware(
     # spec, and browsers reject the combination outright.
     allow_credentials="*" not in CORS_ORIGINS,
 )
+
+# Asset registry (in-memory, swappable for Postgres in Phase 4)
+asset_registry = AssetRegistry()
 
 
 def _client_ip(request: Request) -> str:
@@ -300,6 +304,102 @@ def corpus_ver() -> dict:
     return {"corpus_version": corpus_version(), "free_tier": True}
 
 
+# Asset Registry endpoints
+from pydantic import BaseModel
+from typing import Optional
+
+
+class AssetCreate(BaseModel):
+    name: str
+    rpm: int = 1750
+    bearing_type: str = "6205"
+    install_date: Optional[str] = None
+
+
+from pydantic import BaseModel, field_validator
+from typing import Optional, Union
+
+
+class AssetCreate(BaseModel):
+    name: str
+    rpm: int = 1750
+    bearing_type: str = "6205"
+    install_date: Optional[str] = None
+
+
+class AssetUpdate(BaseModel):
+    name: Optional[str] = None
+    rpm: Optional[int] = None
+    bearing_type: Optional[str] = None
+    install_date: Optional[str] = None
+
+
+class BaselineUpdate(BaseModel):
+    anomaly_index: Optional[float] = None
+    trend_points: Optional[Union[float, list[float]]] = None
+
+    @field_validator("trend_points", mode="before")
+    @classmethod
+    def _coerce_trend_points(cls, v):
+        if isinstance(v, (int, float)):
+            return [float(v)]
+        return v
+
+
+@app.post("/api/v1/assets", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def create_asset(payload: AssetCreate) -> AssetSchema:
+    asset = asset_registry.create(
+        name=payload.name,
+        rpm=payload.rpm,
+        bearing_type=payload.bearing_type,
+        install_date=payload.install_date,
+    )
+    return AssetSchema.model_validate(asset)
+
+
+@app.get("/api/v1/assets", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def list_assets() -> list[AssetSchema]:
+    return [AssetSchema.model_validate(a) for a in asset_registry.list()]
+
+
+@app.get("/api/v1/assets/{asset_id}", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def get_asset(asset_id: str) -> AssetSchema:
+    asset = asset_registry.get(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return AssetSchema.model_validate(asset)
+
+
+@app.patch("/api/v1/assets/{asset_id}", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def update_asset(asset_id: str, payload: AssetUpdate) -> AssetSchema:
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    asset = asset_registry.update(asset_id, data)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return AssetSchema.model_validate(asset)
+
+
+@app.delete("/api/v1/assets/{asset_id}", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def delete_asset(asset_id: str) -> dict:
+    if not asset_registry.delete(asset_id):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return {"deleted": True, "asset_id": asset_id}
+
+
+@app.post("/api/v1/assets/{asset_id}/baseline", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def update_baseline(asset_id: str, payload: BaselineUpdate) -> AssetSchema:
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="No baseline fields to update")
+    asset = asset_registry.update_baseline(asset_id, data)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return AssetSchema.model_validate(asset)
+    return asset
+
+
 @app.post("/api/v1/pulse/analyze", response_model=PulseResponse,
           dependencies=[Depends(require_api_key), Depends(rate_limit)])
 def analyze(req: PulseRequest) -> PulseResponse:
@@ -366,9 +466,20 @@ def upload_csv(
             detail=f"File exceeds the {MAX_UPLOAD_BYTES // 1024 // 1024}MB limit.",
         )
     readings = parse_sensor_csv(raw, default_equipment_id=equipment_id)
-    return analyze(PulseRequest(
+    response = analyze(PulseRequest(
         equipment_id=equipment_id, equipment_type=equipment_type, readings=readings,
     ))
+
+    # Persist baseline if asset exists
+    asset = asset_registry.get_by_name(equipment_id)
+    if asset:
+        anomaly_index = response.anomaly.anomaly_index
+        asset_registry.update_baseline(asset.id, {
+            "anomaly_index": anomaly_index,
+            "trend_points": anomaly_index,
+        })
+
+    return response
 
 
 @app.get("/")
