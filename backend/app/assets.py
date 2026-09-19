@@ -80,15 +80,23 @@ class AssetRegistry:
         # EMA alpha for anomaly_index merging
         alpha = 0.3
 
+        anomaly_index_value = None
+        trend_points_value = None
+
         for key, value in baseline_update.items():
-            if key == "anomaly_index" and key in asset.baseline:
-                # Exponential moving average
-                old_val = asset.baseline[key]
-                if isinstance(old_val, (int, float)) and isinstance(value, (int, float)):
-                    asset.baseline[key] = alpha * value + (1 - alpha) * old_val
+            if key == "anomaly_index":
+                anomaly_index_value = value
+                if key in asset.baseline:
+                    # Exponential moving average
+                    old_val = asset.baseline[key]
+                    if isinstance(old_val, (int, float)) and isinstance(value, (int, float)):
+                        asset.baseline[key] = alpha * value + (1 - alpha) * old_val
+                    else:
+                        asset.baseline[key] = value
                 else:
                     asset.baseline[key] = value
             elif key == "trend_points":
+                trend_points_value = value
                 # Handle trend_points: convert scalar to list on first append
                 existing = asset.baseline.get(key)
                 if existing is None:
@@ -106,6 +114,18 @@ class AssetRegistry:
                     asset.baseline[key] = asset.baseline[key][-30:]
             else:
                 asset.baseline[key] = value
+
+        # If anomaly_index was updated but trend_points wasn't explicitly provided,
+        # also append the anomaly_index to trend_points
+        if anomaly_index_value is not None and trend_points_value is None:
+            existing_tp = asset.baseline.get("trend_points")
+            if existing_tp is None:
+                asset.baseline["trend_points"] = [anomaly_index_value]
+            elif isinstance(existing_tp, list):
+                existing_tp.append(anomaly_index_value)
+                asset.baseline["trend_points"] = existing_tp[-30:]
+            else:
+                asset.baseline["trend_points"] = [existing_tp, anomaly_index_value][-30:]
 
         asset.updated_at = datetime.now(UTC).isoformat()
         return asset

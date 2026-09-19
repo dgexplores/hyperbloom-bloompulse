@@ -317,7 +317,7 @@ class AssetCreate(BaseModel):
 
 
 from pydantic import BaseModel, field_validator
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 
 
 class AssetCreate(BaseModel):
@@ -480,6 +480,98 @@ def upload_csv(
         })
 
     return response
+
+
+def _severity_from_index(idx: float) -> str:
+    """Map anomaly_index to severity."""
+    if idx < 0.50:
+        return "normal"
+    elif idx < 0.65:
+        return "monitor"
+    elif idx < 0.82:
+        return "alert"
+    else:
+        return "critical"
+
+
+class FleetAssetSummary(BaseModel):
+    """Fleet summary entry for dashboard."""
+    id: str
+    name: str
+    rpm: int
+    bearing_type: str
+    last_verdict: float | None = None
+    last_severity: str | None = None
+    last_timestamp: str | None = None
+    trend_sparkline: list[float] = []
+
+
+@app.get("/api/v1/fleet/summary", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def fleet_summary() -> list[FleetAssetSummary]:
+    """Fleet dashboard: all assets with last verdict and trend sparkline."""
+    assets = asset_registry.list()
+    summary = []
+    for asset in assets:
+        # Get trend points from baseline
+        trend_points = asset.baseline.get("trend_points", [])
+        if not isinstance(trend_points, list):
+            trend_points = []
+
+        # Get last anomaly index from trend points
+        last_verdict = trend_points[-1] if trend_points else None
+        last_severity = _severity_from_index(last_verdict) if last_verdict is not None else None
+        last_timestamp = asset.updated_at if trend_points else None
+
+        # Cap sparkline at 30 points
+        sparkline = trend_points[-30:] if trend_points else []
+
+        summary.append(FleetAssetSummary(
+            id=asset.id,
+            name=asset.name,
+            rpm=asset.rpm,
+            bearing_type=asset.bearing_type,
+            last_verdict=last_verdict,
+            last_severity=last_severity,
+            last_timestamp=last_timestamp,
+            trend_sparkline=sparkline,
+        ))
+    return summary
+
+
+@app.get("/api/v1/fleet/filter", dependencies=[Depends(require_api_key), Depends(rate_limit)])
+def fleet_filter(
+    severity: Optional[Literal["normal", "monitor", "alert", "critical"]] = None,
+    limit: int = 50,
+) -> list[FleetAssetSummary]:
+    """Filter fleet by severity with pagination."""
+    if severity is not None and severity not in ("normal", "monitor", "alert", "critical"):
+        raise HTTPException(status_code=400, detail=f"Invalid severity: {severity}")
+
+    assets = asset_registry.list()
+    filtered = []
+
+    for asset in assets:
+        trend_points = asset.baseline.get("trend_points", [])
+        if not isinstance(trend_points, list) or not trend_points:
+            asset_severity = "normal"  # no data = normal
+        else:
+            last_idx = trend_points[-1]
+            asset_severity = _severity_from_index(last_idx)
+
+        if severity is None or asset_severity == severity:
+            sparkline = trend_points[-30:] if trend_points else []
+            filtered.append(FleetAssetSummary(
+                id=asset.id,
+                name=asset.name,
+                rpm=asset.rpm,
+                bearing_type=asset.bearing_type,
+                last_verdict=trend_points[-1] if trend_points else None,
+                last_severity=asset_severity,
+                last_timestamp=asset.updated_at if trend_points else None,
+                trend_sparkline=sparkline,
+            ))
+
+    return filtered[:limit]
 
 
 @app.get("/")
