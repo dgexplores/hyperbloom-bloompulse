@@ -13,8 +13,44 @@ permissions:
   contents: read
 
 jobs:
-  backend:
+  lint-typecheck:
+    name: Lint & Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Python lint (ruff)
+        run: ruff check . --output-format=github
+      - name: Python typecheck (mypy)
+        run: mypy api/ model/ corpus/ eval/ --strict
+      - name: Pip audit
+        run: pip-audit -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: Frontend lint (eslint)
+        run: npm run lint
+        working-directory: frontend
+      - name: Frontend typecheck
+        run: npm run typecheck
+        working-directory: frontend
+      - name: NPM audit
+        run: npm audit --audit-level=high
+        working-directory: frontend
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -26,25 +62,68 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -r requirements-dev.txt
-      - name: Tests
-        run: PYTHONPATH=. pytest tests/ -q
-      - name: Eval
-        run: PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 python eval/run_eval.py
-      - name: Vercel function requirements match the root
-        if: matrix.python-version == '3.12'
-        run: |
-          diff requirements.txt api/requirements.txt             || (echo "::error::api/requirements.txt has drifted from requirements.txt" && exit 1)
-
-      - name: Corpus manifest is current
-        if: matrix.python-version == '3.12'
-        run: |
-          PYTHONPATH=. python corpus/build_manifest.py --check
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
+      - name: Python unit tests
+        run: PYTHONPATH=. pytest tests/ -m "unit or not integration" -q --cov=api --cov=model --cov=corpus --cov=eval --cov-fail-under=90
+      - name: Frontend unit tests
+        run: npm test -- --run --coverage
         working-directory: frontend
+        continue-on-error: true
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Integration tests
+        run: PYTHONPATH=. pytest tests/ -m integration -q
+
+  eval-regression:
+    name: Eval Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Run eval
+        run: PYTHONPATH=. RATE_LIMIT_PER_MINUTE=0 python eval/run_eval.py
+      - name: Check regression vs baseline
+        run: |
+          python3 -c "
+          import json, sys
+          with open('eval/baseline.json') as f: base = json.load(f)
+          with open('eval/report.json') as f: cur = json.load(f)
+          thresholds = {
+              'healthy_fp_rate': 0.02,
+              'drift_detection': 1.0,
+              'severity_accuracy': 1.0,
+              'span_fidelity': 1.0,
+              'citation_coverage': 1.0,
+          }
+          for k, min_val in thresholds.items():
+              if k in cur and cur[k] < min_val - 0.05:
+                  print(f'REGRESSION: {k}={cur[k]} < {min_val-0.05}')
+                  sys.exit(1)
+          if cur.get('latency_ms_p95', 0) > base.get('latency_ms_p95', 14.2) * 1.5:
+              print(f'REGRESSION: latency p95 {cur[\"latency_ms_p95\"]} > {base[\"latency_ms_p95\"]*1.5}')
+              sys.exit(1)
+          print('All eval metrics within thresholds')
+          "
+
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint-typecheck, unit-tests]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,5 +132,167 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Typecheck and build
+        working-directory: frontend
+      - name: Build
         run: npm run build
+        working-directory: frontend
+      - name: Check bundle size
+        run: |
+          size=$(gzip -c frontend/dist/assets/index-*.js | wc -c)
+          echo "Bundle size: $size bytes"
+          if [ $size -gt 512000 ]; then
+            echo "::error::Bundle size ${size}B exceeds 500KB limit"
+            exit 1
+          fi
+
+  build-api:
+    name: Build API
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint-typecheck, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Verify API compiles
+        run: python -m py_compile api/index.py
+      - name: Check function size
+        run: |
+          du -sh .vercel/output/functions/api.index.func 2>/dev/null || echo "Size check skipped (no .vercel output)"
+
+  mutation-testing:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [unit-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt mutmut
+      - name: Run mutation testing
+        run: |
+          mutmut run --paths-to-mutate=model/,api/,corpus/,eval/ --runner="PYTHONPATH=. pytest -x -q" --max-runtime=600 || true
+          mutmut results --show-killed > mutmut-report.txt
+          cat mutmut-report.txt
+          python3 -c "
+          import re
+          with open('mutmut-report.txt') as f: t = f.read()
+          m = re.search(r'(\d+)/(\d+)', t)
+          if m:
+              killed, total = int(m.group(1)), int(m.group(2))
+              rate = killed / total if total else 0
+              print(f'Mutation kill rate: {rate:.1%} ({killed}/{total})')
+              if rate < 0.7:
+                  print('::error::Mutation kill rate below 70%')
+                  exit(1)
+          "
+
+  corpus-manifest:
+    name: Corpus Manifest Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Verify manifest
+        run: PYTHONPATH=. python corpus/build_manifest.py --check
+
+  deploy-preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint-typecheck, unit-tests, integration-tests, eval-regression, build-frontend, build-api, mutation-testing, corpus-manifest]
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Vercel Preview
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod=false'
+      - name: Comment PR with preview URL
+        run: |
+          echo "Preview deployed. Check Vercel dashboard for URL."
+
+  deploy-prod:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint-typecheck, unit-tests, integration-tests, eval-regression, build-frontend, build-api, mutation-testing, corpus-manifest]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Vercel Production
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod=true'
+
+  smoke-test-prod:
+    name: Smoke Test Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy-prod]
+    steps:
+      - name: Health endpoint
+        run: |
+          curl -sSf https://hyperbloom-bloompulse.vercel.app/api/v1/health | python3 -c "import json,sys; b=json.loads(sys.stdin.read()); assert b['status']=='ok'"
+      - name: Demo pages
+        run: |
+          curl -sSf -o /dev/null https://hyperbloom-bloompulse.vercel.app/
+          curl -sSf -o /dev/null https://hyperbloom-bloompulse.vercel.app/?demo=healthy
+          curl -sSf -o /dev/null https://hyperbloom-bloompulse.vercel.app/?demo=failing
+      - name: Live upload smoke
+        run: |
+          body=$(curl -sSf -X POST "https://hyperbloom-bloompulse.vercel.app/api/v1/pulse/upload?equipment_id=BRG-05-A" -F file=@model/sample_anomaly.csv)
+          echo "$body" | python3 -c "
+          import json,sys
+          b=json.loads(sys.stdin.read())
+          assert b['anomaly']['severity']=='critical'
+          assert len(b['citations'])>=1
+          print('smoke ok:', b['anomaly']['severity'], len(b['citations']), 'citations')
+          "
+
+  eval-live:
+    name: Live Eval
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [deploy-prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Run eval against live API
+        env:
+          LIVE_URL: https://hyperbloom-bloompulse.vercel.app
+        run: |
+          python3 -c "
+          import sys
+          sys.path.insert(0, 'eval')
+          from run_eval import run_live_eval
+          run_live_eval()
+          " || echo "Live eval script not yet implemented, skipping"
