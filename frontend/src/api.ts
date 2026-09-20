@@ -1,6 +1,4 @@
-/* Typed client for the BloomPulse API. No key is sent, the public demo is
-   keyless by design and a browser bundle cannot hold a secret anyway. */
-
+/* Typed client for the BloomPulse API. */
 export type Severity = "normal" | "monitor" | "alert" | "critical";
 
 export interface Reading {
@@ -59,6 +57,26 @@ export interface PulseResponse {
   free_tier: boolean;
 }
 
+export interface Asset {
+  id: string;
+  name: string;
+  rpm: number;
+  bearing_type: string;
+  baseline: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface APIKey {
+  id: string;
+  name: string;
+  key_hash: string;
+  organization_id: string;
+  scopes: string[];
+  is_active: boolean;
+  created_at: string;
+}
+
 const BASE =
   (import.meta.env.VITE_API_URL as string | undefined) ||
   (import.meta.env.PROD ? "" : "http://localhost:8000");
@@ -85,7 +103,10 @@ async function failure(response: Response): Promise<Error> {
 async function send(path: string, init: RequestInit): Promise<PulseResponse> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, init);
+    response = await fetch(`${BASE}${path}`, {
+      ...init,
+      credentials: "include",
+    });
   } catch {
     throw new Error(
       BASE
@@ -112,4 +133,58 @@ export function upload(file: File, equipmentId: string) {
     `/api/v1/pulse/upload?equipment_id=${encodeURIComponent(equipmentId)}`,
     { method: "POST", body: form },
   );
+}
+
+export async function fetchAssets(): Promise<Asset[]> {
+  const response = await fetch(`${BASE}/api/v1/assets`, {
+    credentials: "include",
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json() as Promise<Asset[]>;
+}
+
+export async function createAsset(asset: { name: string; rpm: number; bearing_type: string }): Promise<Asset> {
+  const response = await fetch(`${BASE}/api/v1/assets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(asset),
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json() as Promise<Asset>;
+}
+
+export async function deleteAsset(assetId: string): Promise<void> {
+  const response = await fetch(`${BASE}/api/v1/assets/${assetId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) throw await failure(response);
+}
+
+export async function fetchAPIKeys(): Promise<APIKey[]> {
+  const response = await fetch(`${BASE}/api/v1/api-keys`, {
+    credentials: "include",
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json() as Promise<APIKey[]>;
+}
+
+export async function createAPIKey(key: { name: string; scopes: string[] }): Promise<{ api_key: string; key: APIKey }> {
+  const response = await fetch(`${BASE}/api/v1/api-keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(key),
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json() as Promise<{ api_key: string; key: APIKey }>;
+}
+
+export async function deleteAPIKey(keyId: string): Promise<void> {
+  const response = await fetch(`${BASE}/api/v1/api-keys/${keyId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) throw await failure(response);
 }
