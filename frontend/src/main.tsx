@@ -1,11 +1,12 @@
-import { useState } from "react";
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { LoginPage } from "./LoginPage";
 import { APIKeysPage } from "./APIKeysPage";
 import { OrganizationPage } from "./OrganizationPage";
-import MainApp from "./main";
+import AnalyzerApp from "./Analyzer";
 import "./styles.css";
 
 function AppContent() {
@@ -15,7 +16,7 @@ function AppContent() {
   return (
     <div className="app-wrapper">
       <header className="global-header">
-        <nav className="nav">
+        <nav className="nav" aria-label="Primary">
           <div className="nav-brand">
             <NavLink to="/" className="brand">
               Bloom<span className="pulse">Pulse</span>
@@ -44,14 +45,7 @@ function AppContent() {
       <main className="main-content">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <MainApp />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<AnalyzerApp />} />
           <Route
             path="/assets"
             element={
@@ -68,7 +62,6 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-          <Route path="/login" element={<LoginPage />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -131,11 +124,12 @@ function LoginModal({ onClose }: { onClose: () => void }) {
           ✕
         </button>
         <h2>Sign in</h2>
-        <form onSubmit={async (e) => { e.preventDefault(); onClose(); }}>
+        <form onSubmit={(e) => { e.preventDefault(); onClose(); }}>
           <div className="field-group">
             <label htmlFor="modal-email">Email</label>
             <input
               type="email"
+              id="modal-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@company.com"
@@ -147,6 +141,7 @@ function LoginModal({ onClose }: { onClose: () => void }) {
             <div className="password-wrapper">
               <input
                 type={showPassword ? "text" : "password"}
+                id="modal-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -173,12 +168,23 @@ function LoginModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export default function App() {
+export function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <AppContent />
       </BrowserRouter>
     </AuthProvider>
+  );
+}
+
+export default App;
+
+const container = document.getElementById("root");
+if (container) {
+  createRoot(container).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
   );
 }
