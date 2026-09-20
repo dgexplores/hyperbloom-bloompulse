@@ -3,7 +3,11 @@ import pytest
 import pandas as pd
 import io
 import json
-from backend.app.parsers import (
+# Import from utils location for testing
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
+from parsers import (
     parse_csv,
     parse_excel,
     parse_parquet,

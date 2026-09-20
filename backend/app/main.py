@@ -18,7 +18,14 @@ from backend.app.models.schemas import (
     PulseRequest, PulseResponse, SensorReading,
 )
 from backend.app.assets import AssetRegistry
-from backend.app.parsers import parse_sensor_data, df_to_sensor_readings, ParseError
+# Lazy import to avoid bundling pandas/pyarrow in Vercel function
+def _get_parsers():
+    import sys
+    utils_path = os.path.join(os.path.dirname(__file__), '..', '..', 'utils')
+    if utils_path not in sys.path:
+        sys.path.insert(0, utils_path)
+    from parsers import parse_sensor_data, df_to_sensor_readings, ParseError
+    return parse_sensor_data, df_to_sensor_readings, ParseError
 from backend.app.rag.citations import citations_for, corpus_version
 from model.anomaly import (
     PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
@@ -465,6 +472,8 @@ async def upload_sensor_data(
         )
 
     # Parse using multi-format parser (auto-detects CSV, JSONL, Excel, Parquet)
+    # Lazy import to avoid bundling pandas/pyarrow in Vercel function
+    parse_sensor_data, df_to_sensor_readings, ParseError = _get_parsers()
     try:
         df = parse_sensor_data(raw, filename=file.filename)
     except ParseError as e:
