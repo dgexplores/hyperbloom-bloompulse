@@ -1,17 +1,24 @@
 """Tests for authentication and authorization."""
+import uuid
+from datetime import timedelta
+
 import pytest
-from datetime import datetime, timedelta, UTC
-from unittest.mock import MagicMock, patch
 
 from backend.app.auth import (
+    RoleEnum,
     create_access_token,
     decode_access_token,
     generate_api_key,
     verify_api_key,
-    RoleEnum,
 )
-from backend.app.models.models import User, APIKey, Organization, RoleEnum, SubscriptionTier, Asset
 from backend.app.database import SessionLocal, init_db
+from backend.app.models.models import (
+    APIKey,
+    Asset,
+    Organization,
+    SubscriptionTier,
+    User,
+)
 
 
 @pytest.fixture(scope="function")
@@ -88,7 +95,6 @@ def test_subscription_tier_enum():
 
 def test_organization_model(db_session):
     """Test Organization model creation."""
-    import uuid
     
     org = Organization(
         name=f"Test Organization {uuid.uuid4().hex[:8]}",
@@ -105,7 +111,6 @@ def test_organization_model(db_session):
 
 def test_user_model(db_session):
     """Test User model creation."""
-    import uuid
     
     # Create organization first
     org = Organization(name=f"Test Org {uuid.uuid4().hex[:8]}", slug=f"test-org-{uuid.uuid4().hex[:8]}", subscription_tier=SubscriptionTier.free)
@@ -130,7 +135,6 @@ def test_user_model(db_session):
 
 def test_api_key_model(db_session):
     """Test APIKey model creation."""
-    import uuid
     
     # Create organization first
     org = Organization(name=f"Test Org {uuid.uuid4().hex[:8]}", slug=f"test-org-{uuid.uuid4().hex[:8]}", subscription_tier=SubscriptionTier.free)
@@ -154,8 +158,6 @@ def test_api_key_model(db_session):
 
 def test_asset_model(db_session):
     """Test Asset model with organization."""
-    import uuid
-    
     # Create organization first
     org = Organization(name=f"Test Org {uuid.uuid4().hex[:8]}", slug=f"test-org-{uuid.uuid4().hex[:8]}", subscription_tier=SubscriptionTier.free)
     db_session.add(org)
@@ -174,3 +176,104 @@ def test_asset_model(db_session):
     assert asset.name == "Test Asset"
     assert asset.rpm == 1800
     assert asset.organization_id == org.id
+
+def _make_org(db_session, tier=None):
+
+    from backend.app.models.models import SubscriptionTier as Tier
+
+    org = Organization(
+        name=f"Org {uuid.uuid4().hex[:8]}",
+        slug=f"org-{uuid.uuid4().hex[:8]}",
+        subscription_tier=tier or Tier.free,
+    )
+    db_session.add(org)
+    db_session.commit()
+    db_session.refresh(org)
+    return org
+
+
+def _make_user(db_session, org, role=None, password="hashed"):
+
+    from backend.app.auth import RoleEnum as AuthRole
+
+    user = User(
+        email=f"u-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=password,
+        full_name="Test User",
+        role=role or AuthRole.viewer,
+        organization_id=org.id,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+def test_get_current_user_valid_token(db_session):
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from backend.app.auth import create_access_token, get_current_user
+
+    org = _make_org(db_session)
+    user = _make_user(db_session, org)
+    token = create_access_token({"sub": str(user.id)})
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    assert get_current_user(creds, db_session).id == user.id
+
+
+def test_get_current_user_rejects(db_session):
+    import pytest
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from backend.app.auth import get_current_user
+
+    with pytest.raises(HTTPException):
+        get_current_user(None, db_session)
+    with pytest.raises(HTTPException):
+        get_current_user(
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad.token"),
+            db_session,
+        )
+
+
+def test_verify_api_key_header_valid(db_session):
+    from backend.app.auth import generate_api_key, verify_api_key_header
+    from backend.app.models.models import APIKey as KeyModel
+
+    org = _make_org(db_session)
+    api_key, key_hash = generate_api_key()
+    db_session.add(KeyModel(
+        name="k", key_hash=key_hash, organization_id=org.id, scopes=["read"],
+    ))
+    db_session.commit()
+    user, found_org = verify_api_key_header(x_api_key=api_key, authorization=None, db=db_session)
+    assert found_org.id == org.id
+    assert user.organization_id == org.id
+
+
+def test_verify_api_key_header_rejects(db_session):
+    import pytest
+    from fastapi import HTTPException
+
+    from backend.app.auth import verify_api_key_header
+
+    with pytest.raises(HTTPException):
+        verify_api_key_header(x_api_key=None, authorization=None, db=db_session)
+    with pytest.raises(HTTPException):
+        verify_api_key_header(x_api_key="bp_wrong", authorization=None, db=db_session)
+
+
+def test_require_role_allows_and_denies(db_session):
+    import pytest
+    from fastapi import HTTPException
+
+    from backend.app.auth import RoleEnum as AuthRole
+    from backend.app.auth import require_role
+
+    org = _make_org(db_session)
+    admin = _make_user(db_session, org, role=AuthRole.admin)
+    viewer = _make_user(db_session, org, role=AuthRole.viewer)
+    assert require_role(AuthRole.admin)(admin).id == admin.id
+    with pytest.raises(HTTPException):
+        require_role(AuthRole.admin)(viewer)

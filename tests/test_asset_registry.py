@@ -1,6 +1,6 @@
 """Asset registry CRUD + baseline persistence."""
-import pytest
-from backend.app.assets import AssetRegistry, Asset
+from backend.app.assets import AssetRegistry
+
 
 def test_create_asset():
     reg = AssetRegistry()

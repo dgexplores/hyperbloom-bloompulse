@@ -1,20 +1,20 @@
 """Authentication and authorization for BloomPulse."""
 from __future__ import annotations
+
 import hashlib
 import hmac
 import os
 import secrets
-from datetime import datetime, timedelta, UTC
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import jwt
+from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from backend.app.models.models import User, APIKey, Organization, RoleEnum
 from backend.app.database import get_db_dep
-from fastapi import Depends, HTTPException, status, Request, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from backend.app.models.models import APIKey, Organization, RoleEnum, User
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -41,7 +41,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a JWT access token."""
     to_encode = data.copy()
     if expires_delta:
@@ -53,7 +53,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+def decode_access_token(token: str) -> dict | None:
     """Decode a JWT access token."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -80,8 +80,8 @@ def verify_api_key(api_key: str, key_hash: str) -> bool:
 
 
 def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: Session = Depends(get_db_dep)
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008 - FastAPI idiom
+    db: Session = Depends(get_db_dep)  # noqa: B008 - FastAPI idiom
 ) -> User:
     """Get the current authenticated user from JWT token."""
     if not credentials:
@@ -99,13 +99,14 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user_id: str = payload.get("sub")
-    if not user_id:
+    raw_sub = payload.get("sub")
+    if not isinstance(raw_sub, str) or not raw_sub:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    user_id = raw_sub
     
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -126,7 +127,7 @@ def get_current_user(
 
 
 def get_current_org(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),  # noqa: B008 - FastAPI idiom
 ) -> Organization:
     """Get the current user's organization."""
     # The user's organization is loaded via relationship
@@ -134,9 +135,9 @@ def get_current_org(
 
 
 def verify_api_key_header(
-    x_api_key: Optional[str] = Header(None, alias="x-api-key"),
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db_dep)
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db_dep)  # noqa: B008 - FastAPI idiom
 ) -> tuple[User, Organization]:
     """Verify API key from header (supports both x-api-key and Authorization: Bearer)."""
     api_key = None
@@ -155,8 +156,8 @@ def verify_api_key_header(
     # Look up API key by hash
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     api_key_obj = db.query(APIKey).filter(
-        APIKey.key_hash == api_key,
-        APIKey.is_active == True
+        APIKey.key_hash == key_hash,
+        APIKey.is_active == True,
     ).first()
     
     if not api_key_obj:
@@ -201,7 +202,7 @@ def verify_api_key_header(
 
 def require_role(*allowed_roles: RoleEnum):
     """Dependency that requires specific role(s)."""
-    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:  # noqa: B008 - FastAPI idiom
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

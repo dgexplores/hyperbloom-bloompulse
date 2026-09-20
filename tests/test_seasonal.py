@@ -10,7 +10,6 @@ periods are detected and reported; longer ones cannot be separated from
 drift within one series, so the verdict stands and the boundary is locked
 by the tests below instead of guessed around.
 """
-import pytest
 
 from model.anomaly import BloomPulseAnomaly
 from model.seasonal import seasonal_period

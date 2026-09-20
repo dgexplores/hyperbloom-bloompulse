@@ -25,8 +25,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from eval.healthy_population import population  # noqa: E402
-from model.anomaly import BloomPulseAnomaly  # noqa: E402
+from eval.healthy_population import population
+from model.anomaly import BloomPulseAnomaly
 
 # The false-positive budget. A tool that cries drift on a healthy machine is
 # worse than useless on a shop floor, so this is deliberately tight.
@@ -101,7 +101,11 @@ def main() -> None:
 
     # CONFORMAL_DRIFT_Q95: split-conformal threshold on the worst normalized
     # instrument margin, calibrated on the first 200 healthy series.
-    from model.conformal import CONFORMAL_DRIFT_Q95, calibration_threshold, drift_nonconformity
+    from model.conformal import (
+        CONFORMAL_DRIFT_Q95,
+        calibration_threshold,
+        drift_nonconformity,
+    )
 
     cal_scores = [drift_nonconformity(series) for series in population(200)]
     conformal_measured = round(calibration_threshold(cal_scores), 3)
@@ -111,7 +115,10 @@ def main() -> None:
           f"-> pasted constant {CONFORMAL_DRIFT_Q95}")
 
     from model.anomaly import (
-        DRIFT_ALERT, DRIFT_MONITOR, TREND_ALERT, TREND_MONITOR,
+        DRIFT_ALERT,
+        DRIFT_MONITOR,
+        TREND_ALERT,
+        TREND_MONITOR,
     )
     from model.physics import PHYSICS_CONSISTENCY_ALERT
 

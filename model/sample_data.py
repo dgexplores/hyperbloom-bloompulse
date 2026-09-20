@@ -1,12 +1,14 @@
 """Generate synthetic industrial sensor CSVs for demo - no hardware needed"""
-import csv, os, random
+import csv
+import os
+import random
 from datetime import datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
 def generate_normal(equipment_id="BRG-05-A", n=30):
-    base = datetime(2026,8,20,8,0,0)
+    base = datetime(2026,8,20,8,0,0)  # noqa: DTZ001 - naive stamps keep committed sample CSVs stable
     rows = []
     for i in range(n):
         rows.append({
@@ -21,7 +23,7 @@ def generate_normal(equipment_id="BRG-05-A", n=30):
 
 def generate_anomaly(equipment_id="BRG-05-A", n=30):
     rows = generate_normal(equipment_id, 15)
-    base = datetime(2026,8,22,20,0,0)
+    base = datetime(2026,8,22,20,0,0)  # noqa: DTZ001 - naive stamps keep committed sample CSVs stable
     for i in range(15, n):
         # progressive bloom: vibration + temp rise
         factor = (i-15)/14

@@ -8,7 +8,6 @@ pipeline abstains instead of publishing it.
 import time
 
 import numpy as np
-import pytest
 
 from model.confidence import trend_ci
 

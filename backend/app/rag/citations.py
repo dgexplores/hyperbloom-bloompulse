@@ -15,7 +15,10 @@ from pathlib import Path
 
 from backend.app.models.schemas import Citation
 from model.anomaly import (
-    PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
+    PRESSURE_VARIANCE_ALERT,
+    TEMP_RISE_THRESHOLD,
+    VIB_ALERT,
+    VIB_NORMAL,
 )
 
 CORPUS_DIR = Path(__file__).resolve().parents[3] / "corpus"

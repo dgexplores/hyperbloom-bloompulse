@@ -73,7 +73,7 @@ class IsolationForest:
             self._grow(X[~mask], depth + 1, limit, rng),
         )
 
-    def fit(self, X: np.ndarray) -> "IsolationForest":
+    def fit(self, X: np.ndarray) -> IsolationForest:
         X = np.asarray(X, dtype=float)
         n = len(X)
         if n == 0:

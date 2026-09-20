@@ -1,19 +1,21 @@
 """Tests for multi-format sensor data parsers."""
-import pytest
-import pandas as pd
 import io
-import json
+import os
+
 # Import from utils location for testing
 import sys
-import os
+
+import pandas as pd
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utils'))
 from parsers import (
+    ParseError,
     parse_csv,
     parse_excel,
-    parse_parquet,
     parse_jsonl,
+    parse_parquet,
     parse_sensor_data,
-    ParseError,
 )
 
 # Sample CSV data

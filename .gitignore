@@ -22,3 +22,6 @@ backend/.venv/
 .env.*.local
 !.env.example
 .pytest_cache/
+
+# coverage data
+.coverage

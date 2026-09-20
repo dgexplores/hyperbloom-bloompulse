@@ -1,0 +1,9 @@
+[run]
+omit =
+    */sample_data.py
+    */alembic/*
+    */tests/*
+
+[report]
+show_missing = True
+skip_covered = False

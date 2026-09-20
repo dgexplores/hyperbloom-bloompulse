@@ -17,6 +17,11 @@ def upload(payload, name="sensors.csv"):
     return client.post("/api/v1/pulse/upload", files={"file": (name, payload, "text/csv")})
 
 
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def series(n, vib=2.0, temp=55.0):
     return [{"timestamp": f"2026-08-20T{i:02d}:00:00", "equipment_id": "B",
              "temperature_c": temp, "vibration_mm_s": vib, "pressure_bar": 5.0}
@@ -114,15 +119,15 @@ def test_the_documented_row_limit_is_accepted():
 
 def test_bundled_samples_produce_their_advertised_verdicts():
     """The README and the demo script both promise these outcomes."""
-    normal = upload(open("model/sample_normal.csv", "rb").read()).json()
-    anomaly = upload(open("model/sample_anomaly.csv", "rb").read()).json()
+    normal = upload(_read_bytes("model/sample_normal.csv")).json()
+    anomaly = upload(_read_bytes("model/sample_anomaly.csv")).json()
     assert normal["anomaly"]["severity"] == "normal"
     assert anomaly["anomaly"]["severity"] == "critical"
 
 
 def test_every_verdict_carries_at_least_one_citation():
     for path in ("model/sample_normal.csv", "model/sample_anomaly.csv"):
-        body = upload(open(path, "rb").read()).json()
+        body = upload(_read_bytes(path)).json()
         assert body["citations"], path
         for citation in body["citations"]:
             assert citation["span_text"] and citation["locator"] and citation["deep_link"]
@@ -130,7 +135,7 @@ def test_every_verdict_carries_at_least_one_citation():
 
 def test_a_clean_machine_is_a_confident_verdict_not_an_abstention():
     """Confidence expresses certainty in the call, not how alarming it is."""
-    body = upload(open("model/sample_normal.csv", "rb").read()).json()
+    body = upload(_read_bytes("model/sample_normal.csv")).json()
     assert body["confidence"]["score"] >= 70
     assert body["confidence"]["abstain"] is False
 
@@ -277,7 +282,7 @@ def test_every_backing_passage_named_by_the_rules_exists():
 
 
 def test_citations_explain_why_they_were_attached():
-    body = upload(open("model/sample_anomaly.csv", "rb").read()).json()
+    body = upload(_read_bytes("model/sample_anomaly.csv")).json()
     for citation in body["citations"]:
         assert citation["applies_to"], citation["id"]
 
@@ -389,7 +394,10 @@ def test_the_model_escalates_drift_that_no_published_limit_catches():
     import numpy as np
 
     from model.anomaly import (
-        TEMP_RISE_THRESHOLD, TREND_MONITOR, VIB_NORMAL, BloomPulseAnomaly,
+        TEMP_RISE_THRESHOLD,
+        TREND_MONITOR,
+        VIB_NORMAL,
+        BloomPulseAnomaly,
     )
     from model.physics import PHYSICS_CONSISTENCY_ALERT
 
@@ -487,7 +495,6 @@ def test_a_smooth_thermal_ramp_is_caught():
 def test_a_flat_machine_with_ordinary_noise_stays_normal():
     """The trend test must not fire on noise. This is the same budget as the
     forest cut, asserted through the whole pipeline."""
-    import numpy as np
 
     from eval.healthy_population import healthy_series
 
@@ -501,7 +508,7 @@ def test_a_flat_machine_with_ordinary_noise_stays_normal():
 def test_the_response_publishes_no_probability_claim():
     """Nothing in this project is calibrated against failure events, so the API
     must not put a probability in front of a maintenance supervisor."""
-    body = upload(open("model/sample_anomaly.csv", "rb").read()).json()
+    body = upload(_read_bytes("model/sample_anomaly.csv")).json()
     anomaly = body["anomaly"]
     assert "failure_probability_7d" not in anomaly
     assert "predicted_failure_days" not in anomaly

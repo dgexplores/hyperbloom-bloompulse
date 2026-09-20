@@ -13,77 +13,34 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.app.models.schemas import (
-    AnomalyResult, Asset as AssetSchema, Confidence, EquipmentType, HealthResponse,
-    PulseRequest, PulseResponse, SensorReading,
-)
 from backend.app.assets import AssetRegistry
-# Parse CSV using stdlib only (no pandas/pyarrow) - keeps function bundle small
-def parse_sensor_csv(raw: bytes, default_equipment_id: str = "BRG-05-A") -> list[dict]:
-    """Parse CSV bytes to list of sensor reading dicts."""
-    if not raw.strip():
-        raise ValueError("The uploaded file is empty.")
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise ValueError("File is not UTF-8 text. Export as plain CSV and retry.")
-
-    reader = csv.DictReader(io.StringIO(text))
-    columns = {(c or "").strip() for c in (reader.fieldnames or [])}
-    missing = REQUIRED_COLUMNS - columns
-    if missing:
-        raise ValueError(
-            f"CSV is missing required column(s): {', '.join(sorted(missing))}. "
-            f"Expected header: timestamp, equipment_id, temperature_c, "
-            f"vibration_mm_s, pressure_bar, rpm"
-        )
-
-    def number(row: dict, key: str, line: int, default: float | None = None) -> float | None:
-        value = (row.get(key) or "").strip()
-        if not value:
-            if default is None:
-                raise ValueError(
-                    f"Row {line}: '{key}' is empty and has no default.",
-                )
-            return default
-        try:
-            return float(value)
-        except ValueError:
-            raise ValueError(
-                f"Row {line}: '{key}' is {value!r}, which is not a number.",
-            )
-
-    readings: list[dict] = []
-    for line, row in enumerate(reader, start=2):
-        if not any((v or "").strip() for v in row.values()):
-            continue
-        if len(readings) >= MAX_ROWS:
-            raise ValueError(
-                f"CSV has more than {MAX_ROWS} data rows. "
-                f"Split the file and retry."
-            )
-        readings.append({
-            "timestamp": row["timestamp"],
-            "equipment_id": row.get("equipment_id") or default_equipment_id,
-            "temperature_c": number(row, "temperature_c", line),
-            "vibration_mm_s": number(row, "vibration_mm_s", line),
-            "pressure_bar": number(row, "pressure_bar", line, default=5.0),
-            "rpm": number(row, "rpm", line, default=1750.0),
-        })
-    if len(readings) < 8:
-        raise ValueError(
-            f"Need at least 8 data rows for analysis, got {len(readings)}. "
-            "Upload a longer time series."
-        )
-    return readings
+from backend.app.models.schemas import (
+    AnomalyResult,
+    Confidence,
+    EquipmentType,
+    HealthResponse,
+    PulseRequest,
+    PulseResponse,
+    SensorReading,
+)
+from backend.app.models.schemas import (
+    Asset as AssetSchema,
+)
+from backend.app.observability import ChaosMiddleware, RequestIDMiddleware, init_sentry
+from backend.app.observability import metrics as obs_metrics
 from backend.app.rag.citations import citations_for, corpus_version
 from model.anomaly import (
-    PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
+    PRESSURE_VARIANCE_ALERT,
+    TEMP_RISE_THRESHOLD,
+    VIB_ALERT,
+    VIB_NORMAL,
     score_readings,
 )
 
 logger = logging.getLogger("bloompulse")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+
+init_sentry()
 
 MAX_ROWS = 500
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
@@ -120,6 +77,9 @@ app.add_middleware(
 
 # Asset registry (in-memory, swappable for Postgres in Phase 4)
 asset_registry = AssetRegistry()
+
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(ChaosMiddleware)
 
 
 def _client_ip(request: Request) -> str:
@@ -231,6 +191,12 @@ def parse_sensor_csv(raw: bytes, default_equipment_id: str) -> list[SensorReadin
                 detail=f"Row {line}: '{key}' is {value!r}, which is not a number.",
             )
 
+    def required_number(row: dict, key: str, line: int) -> float:
+        """A required channel: empty or non-numeric raises, never returns None."""
+        value = number(row, key, line)
+        assert value is not None  # number() raises when default is None
+        return value
+
     readings: list[SensorReading] = []
     for line, row in enumerate(reader, start=2):  # line 1 is the header
         if not any((v or "").strip() for v in row.values()):
@@ -247,8 +213,8 @@ def parse_sensor_csv(raw: bytes, default_equipment_id: str) -> list[SensorReadin
         readings.append(SensorReading(
             timestamp=timestamp,
             equipment_id=(row.get("equipment_id") or "").strip() or default_equipment_id,
-            temperature_c=number(row, "temperature_c", line),
-            vibration_mm_s=number(row, "vibration_mm_s", line),
+            temperature_c=required_number(row, "temperature_c", line),
+            vibration_mm_s=required_number(row, "vibration_mm_s", line),
             pressure_bar=number(row, "pressure_bar", line, default=5.0),
             rpm=number(row, "rpm", line, default=1750.0),
         ))
@@ -384,39 +350,36 @@ def corpus_ver() -> dict:
     return {"corpus_version": corpus_version(), "free_tier": True}
 
 
+@app.get("/api/v1/metrics")
+def metrics_snapshot() -> dict:
+    """Ephemeral worker metrics: smoke checks and debugging, not billing."""
+    return obs_metrics.snapshot()
+
+
 # Asset Registry endpoints
-from pydantic import BaseModel
-from typing import Optional
 
-
-class AssetCreate(BaseModel):
-    name: str
-    rpm: int = 1750
-    bearing_type: str = "6205"
-    install_date: Optional[str] = None
-
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
-from typing import Optional, Union, Literal
 
 
 class AssetCreate(BaseModel):
     name: str
     rpm: int = 1750
     bearing_type: str = "6205"
-    install_date: Optional[str] = None
+    install_date: str | None = None
 
 
 class AssetUpdate(BaseModel):
-    name: Optional[str] = None
-    rpm: Optional[int] = None
-    bearing_type: Optional[str] = None
-    install_date: Optional[str] = None
+    name: str | None = None
+    rpm: int | None = None
+    bearing_type: str | None = None
+    install_date: str | None = None
 
 
 class BaselineUpdate(BaseModel):
-    anomaly_index: Optional[float] = None
-    trend_points: Optional[Union[float, list[float]]] = None
+    anomaly_index: float | None = None
+    trend_points: float | list[float] | None = None
 
     @field_validator("trend_points", mode="before")
     @classmethod
@@ -508,14 +471,19 @@ def analyze(req: PulseRequest) -> PulseResponse:
             f"Anomaly index {result['anomaly_index']} is driven by {driver}." if urgent
             else f"Anomaly index {result['anomaly_index']}. The channel furthest from its "
                  f"own baseline is {driver}, and every published limit still holds.",
-            f"Vibration {metrics['max_vib']} mm/s, temperature "
-            f"{_describe_rise(metrics['max_temp_rise'])}, pressure variance "
-            f"{metrics['pressure_var']}%.",
+            (
+                f"Vibration {metrics['max_vib']} mm/s, temperature "
+                f"{_describe_rise(metrics['max_temp_rise'])}, pressure variance "
+                f"{metrics['pressure_var']}%."
+            ),
             "Lockout under 1910.147 is required before service." if urgent
             else "Keep to the routine ISO 10816-3 monitoring interval.",
         ]),
         explanation_simple=f"{req.equipment_id} is {severity}. {advice[severity]}",
     )
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    obs_metrics.record_verdict(severity, latency_ms)
 
     return PulseResponse(
         anomaly=anomaly,
@@ -524,7 +492,7 @@ def analyze(req: PulseRequest) -> PulseResponse:
         confidence=_confidence(result),
         work_order=_work_order(req.equipment_id, req.equipment_type, result),
         corpus_version=corpus_version(),
-        latency_ms=int((time.perf_counter() - started) * 1000),
+        latency_ms=latency_ms,
         trend_ci=result.get("trend_ci"),
         physics_consistency=result.get("physics_consistency"),
         physics_hz=result.get("physics_hz"),
@@ -537,7 +505,7 @@ def analyze(req: PulseRequest) -> PulseResponse:
 @app.post("/api/v1/pulse/upload", response_model=PulseResponse,
           dependencies=[Depends(require_api_key), Depends(rate_limit)])
 async def upload_sensor_data(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI idiom
     equipment_id: str = "BRG-05-A",
     equipment_type: EquipmentType = EquipmentType.BEARING,
 ) -> PulseResponse:
@@ -629,7 +597,7 @@ def fleet_summary() -> list[FleetAssetSummary]:
 
 @app.get("/api/v1/fleet/filter", dependencies=[Depends(require_api_key), Depends(rate_limit)])
 def fleet_filter(
-    severity: Optional[Literal["normal", "monitor", "alert", "critical"]] = None,
+    severity: Literal["normal", "monitor", "alert", "critical"] | None = None,
     limit: int = 50,
 ) -> list[FleetAssetSummary]:
     """Filter fleet by severity with pagination."""

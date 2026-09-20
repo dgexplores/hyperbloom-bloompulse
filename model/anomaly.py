@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from model.confidence import trend_ci
+from model.conformal import CONFORMAL_DRIFT_Q95, _margins, prediction_set
 from model.iforest import IsolationForest
 from model.physics import (
     DEFAULT_BEARING,
@@ -17,8 +19,6 @@ from model.physics import (
     friction_consistency,
 )
 from model.seasonal import seasonal_period
-from model.confidence import trend_ci
-from model.conformal import CONFORMAL_DRIFT_Q95, _margins, prediction_set
 
 # Thresholds from corpus: ISO 10816-3 Table A.2 + NTN manual Sec 4.2
 VIB_NORMAL = 2.8            # mm/s - Zone B/C boundary

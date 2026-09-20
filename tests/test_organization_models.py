@@ -1,6 +1,13 @@
 """Tests for database migrations and models."""
-import pytest
-from backend.app.models.models import Organization, User, APIKey, Asset, RoleEnum, SubscriptionTier
+from backend.app.models.models import (
+    APIKey,
+    Asset,
+    Organization,
+    RoleEnum,
+    SubscriptionTier,
+    User,
+)
+
 
 def test_organization_crud():
     """Test organization CRUD operations."""

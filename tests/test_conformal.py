@@ -7,8 +7,6 @@ out by this test; that is documented, not hidden.
 """
 import math
 
-import pytest
-
 from model.conformal import (
     CONFORMAL_DRIFT_Q95,
     calibration_threshold,

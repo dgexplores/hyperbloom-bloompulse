@@ -1,15 +1,14 @@
 """Multi-format sensor data parsers for BloomPulse."""
 from __future__ import annotations
-import csv
+
 import io
 import json
-from typing import Optional
+
 import pandas as pd
 
 
 class ParseError(Exception):
     """Raised when parsing fails with a user-actionable message."""
-    pass
 
 
 REQUIRED_COLUMNS = {"timestamp", "equipment_id", "temperature_c", "vibration_mm_s"}
@@ -80,7 +79,7 @@ def parse_csv(raw: bytes, default_equipment_id: str = "BRG-05-A") -> pd.DataFram
 
     try:
         df = pd.read_csv(io.StringIO(text))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pandas raises varied errors; all map to ParseError
         raise ParseError(f"Failed to parse CSV: {e}")
 
     # Check for header-only CSV (columns exist but no data rows)
@@ -121,7 +120,7 @@ def parse_excel(raw: bytes, default_equipment_id: str = "BRG-05-A") -> pd.DataFr
     """Parse Excel (xlsx) bytes to validated DataFrame."""
     try:
         df = pd.read_excel(io.BytesIO(raw), engine="openpyxl")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pandas raises varied errors; all map to ParseError
         raise ParseError(f"Failed to parse Excel file: {e}")
 
     return _validate_dataframe(df, default_equipment_id=default_equipment_id)
@@ -131,7 +130,7 @@ def parse_parquet(raw: bytes, default_equipment_id: str = "BRG-05-A") -> pd.Data
     """Parse Parquet bytes to validated DataFrame."""
     try:
         df = pd.read_parquet(io.BytesIO(raw))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pandas raises varied errors; all map to ParseError
         raise ParseError(f"Failed to parse Parquet file: {e}")
 
     return _validate_dataframe(df, default_equipment_id=default_equipment_id)
@@ -139,7 +138,7 @@ def parse_parquet(raw: bytes, default_equipment_id: str = "BRG-05-A") -> pd.Data
 
 def parse_sensor_data(
     raw: bytes,
-    filename: Optional[str] = None,
+    filename: str | None = None,
     default_equipment_id: str = "BRG-05-A",
 ) -> pd.DataFrame:
     """
@@ -171,7 +170,7 @@ def parse_sensor_data(
     # Fallback: content-based detection
     # Try JSONL first if it looks like JSONL (starts with { or [)
     trimmed = raw.lstrip()
-    if trimmed.startswith(b"{") or trimmed.startswith(b"["):
+    if trimmed.startswith((b"{", b"[")):
         try:
             return parse_jsonl(raw, default_equipment_id)
         except ParseError:

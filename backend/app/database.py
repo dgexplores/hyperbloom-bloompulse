@@ -1,15 +1,16 @@
 """Database session and engine configuration."""
 from __future__ import annotations
-from contextlib import contextmanager
-from typing import Generator
-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-
-from backend.app.models.models import Base
 
 # Database URL - use environment variable in production
 import os
+from collections.abc import Generator
+from contextlib import contextmanager
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.app.models.models import Base
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://freelance:freelance@localhost:5432/freelance")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
