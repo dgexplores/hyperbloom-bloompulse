@@ -18,6 +18,7 @@ from backend.app.models.schemas import (
     PulseRequest, PulseResponse, SensorReading,
 )
 from backend.app.assets import AssetRegistry
+from backend.app.parsers import parse_sensor_data, df_to_sensor_readings, ParseError
 from backend.app.rag.citations import citations_for, corpus_version
 from model.anomaly import (
     PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
@@ -450,22 +451,26 @@ def analyze(req: PulseRequest) -> PulseResponse:
 
 @app.post("/api/v1/pulse/upload", response_model=PulseResponse,
           dependencies=[Depends(require_api_key), Depends(rate_limit)])
-def upload_csv(
+async def upload_sensor_data(
     file: UploadFile = File(...),
     equipment_id: str = "BRG-05-A",
     equipment_type: EquipmentType = EquipmentType.BEARING,
 ) -> PulseResponse:
-    # Deliberately a sync handler. Scoring is CPU-bound, so declaring this
-    # `async def` and calling analyze() from it would block the event loop for
-    # the whole analysis. A sync handler is dispatched to FastAPI's threadpool
-    # instead, which is what keeps concurrent uploads concurrent.
-    raw = file.file.read(MAX_UPLOAD_BYTES + 1)
+    # Async handler for proper exception handling
+    raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
             detail=f"File exceeds the {MAX_UPLOAD_BYTES // 1024 // 1024}MB limit.",
         )
-    readings = parse_sensor_csv(raw, default_equipment_id=equipment_id)
+
+    # Parse using multi-format parser (auto-detects CSV, JSONL, Excel, Parquet)
+    try:
+        df = parse_sensor_data(raw, filename=file.filename)
+    except ParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    readings = df_to_sensor_readings(df, default_equipment_id=equipment_id)
     response = analyze(PulseRequest(
         equipment_id=equipment_id, equipment_type=equipment_type, readings=readings,
     ))
