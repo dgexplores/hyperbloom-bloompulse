@@ -16,7 +16,14 @@ frontend/dist
 tests
 .github
 .git
+utils
 
 # NOTE: do not exclude *.md here. corpus/sources/*.md IS the corpus, and the
 # citation assembler parses it at import. Excluding markdown silently shipped
 # an API that returned verdicts with no citations at all.
+
+# Heavy ML/data science dependencies - not needed in deployed function
+utils
+**/utils/**
+*.parquet
+*.xlsx
