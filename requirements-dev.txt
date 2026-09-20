@@ -5,3 +5,14 @@ scikit-learn==1.9.0
 uvicorn==0.38.0
 pytest==8.4.2
 httpx==0.28.1
+# Multi-format parsers + Excel/Parquet (local/dev only, not deployed).
+pandas==3.0.6
+openpyxl==3.1.5
+pyarrow==25.0.1
+# Auth + database (tests + local dev; deployed function is stateless).
+sqlalchemy==2.0.54
+psycopg2-binary==2.9.13
+alembic==1.20.0
+pyjwt==2.14.0
+passlib==1.7.4
+bcrypt==5.0.0
