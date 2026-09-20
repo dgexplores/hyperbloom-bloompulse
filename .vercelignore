@@ -17,6 +17,8 @@ tests
 .github
 .git
 utils
+alembic
+backend
 
 # NOTE: do not exclude *.md here. corpus/sources/*.md IS the corpus, and the
 # citation assembler parses it at import. Excluding markdown silently shipped
