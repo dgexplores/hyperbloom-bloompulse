@@ -18,14 +18,64 @@ from backend.app.models.schemas import (
     PulseRequest, PulseResponse, SensorReading,
 )
 from backend.app.assets import AssetRegistry
-# Lazy import to avoid bundling pandas/pyarrow in Vercel function
-def _get_parsers():
-    import sys
-    utils_path = os.path.join(os.path.dirname(__file__), '..', '..', 'utils')
-    if utils_path not in sys.path:
-        sys.path.insert(0, utils_path)
-    from parsers import parse_sensor_data, df_to_sensor_readings, ParseError
-    return parse_sensor_data, df_to_sensor_readings, ParseError
+# Parse CSV using stdlib only (no pandas/pyarrow) - keeps function bundle small
+def parse_sensor_csv(raw: bytes, default_equipment_id: str = "BRG-05-A") -> list[dict]:
+    """Parse CSV bytes to list of sensor reading dicts."""
+    if not raw.strip():
+        raise ValueError("The uploaded file is empty.")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("File is not UTF-8 text. Export as plain CSV and retry.")
+
+    reader = csv.DictReader(io.StringIO(text))
+    columns = {(c or "").strip() for c in (reader.fieldnames or [])}
+    missing = REQUIRED_COLUMNS - columns
+    if missing:
+        raise ValueError(
+            f"CSV is missing required column(s): {', '.join(sorted(missing))}. "
+            f"Expected header: timestamp, equipment_id, temperature_c, "
+            f"vibration_mm_s, pressure_bar, rpm"
+        )
+
+    def number(row: dict, key: str, line: int, default: float | None = None) -> float | None:
+        value = (row.get(key) or "").strip()
+        if not value:
+            if default is None:
+                raise ValueError(
+                    f"Row {line}: '{key}' is empty and has no default.",
+                )
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            raise ValueError(
+                f"Row {line}: '{key}' is {value!r}, which is not a number.",
+            )
+
+    readings: list[dict] = []
+    for line, row in enumerate(reader, start=2):
+        if not any((v or "").strip() for v in row.values()):
+            continue
+        if len(readings) >= MAX_ROWS:
+            raise ValueError(
+                f"CSV has more than {MAX_ROWS} data rows. "
+                f"Split the file and retry."
+            )
+        readings.append({
+            "timestamp": row["timestamp"],
+            "equipment_id": row.get("equipment_id") or default_equipment_id,
+            "temperature_c": number(row, "temperature_c", line),
+            "vibration_mm_s": number(row, "vibration_mm_s", line),
+            "pressure_bar": number(row, "pressure_bar", line, default=5.0),
+            "rpm": number(row, "rpm", line, default=1750.0),
+        })
+    if len(readings) < 8:
+        raise ValueError(
+            f"Need at least 8 data rows for analysis, got {len(readings)}. "
+            "Upload a longer time series."
+        )
+    return readings
 from backend.app.rag.citations import citations_for, corpus_version
 from model.anomaly import (
     PRESSURE_VARIANCE_ALERT, TEMP_RISE_THRESHOLD, VIB_ALERT, VIB_NORMAL,
@@ -471,15 +521,12 @@ async def upload_sensor_data(
             detail=f"File exceeds the {MAX_UPLOAD_BYTES // 1024 // 1024}MB limit.",
         )
 
-    # Parse using multi-format parser (auto-detects CSV, JSONL, Excel, Parquet)
-    # Lazy import to avoid bundling pandas/pyarrow in Vercel function
-    parse_sensor_data, df_to_sensor_readings, ParseError = _get_parsers()
+    # Parse CSV using stdlib only (no pandas/pyarrow) - keeps function bundle small
     try:
-        df = parse_sensor_data(raw, filename=file.filename)
-    except ParseError as e:
+        readings = parse_sensor_csv(raw, default_equipment_id=equipment_id)
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    readings = df_to_sensor_readings(df, default_equipment_id=equipment_id)
     response = analyze(PulseRequest(
         equipment_id=equipment_id, equipment_type=equipment_type, readings=readings,
     ))
