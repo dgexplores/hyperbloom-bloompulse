@@ -202,6 +202,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [unit-tests]
+    # Informational, not gating: mutmut v3 assumes a flat layout and runs the
+    # suite from a mutants/ copy, which breaks this repo's `backend.*`
+    # package imports (verified 2026-09-21: every mutant errors at
+    # collection). Tracked as tech debt; the contract + coverage gates below
+    # are the enforced hardening until the runner is fixed.
+    continue-on-error: true
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
