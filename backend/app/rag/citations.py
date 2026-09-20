@@ -23,7 +23,7 @@ SOURCES_DIR = CORPUS_DIR / "sources"
 MANIFEST_PATH = CORPUS_DIR / "manifest.json"
 FALLBACK_VERSION = "bloompulse-unversioned"
 
-MAX_CITATIONS = 4
+MAX_CITATIONS = 5
 
 logger = logging.getLogger("bloompulse")
 
@@ -139,6 +139,8 @@ BACKING = {
     "lockout": "Sec 1910.147 - Control of Hazardous Energy (Lockout/Tagout)",
     "guarding": "Sec 1910.212 - General Requirements for All Machines",
     "thresholds": "OSHA Directive CPL 02-00-147 - Vibration Thresholds (Predictive Maintenance)",
+    "power_transmission": "Sec 1910.219(d)(3) - Broken Pulleys",
+    "bearing_freq": "Bearing Unit Model: NTN UCFCX05",
 }
 
 
@@ -147,7 +149,12 @@ def _cite(key: str, applies_to: str) -> Citation | None:
     if passage is None:
         logger.error("corpus is missing the passage backing %r", key)
         return None
-    return passage.model_copy(update={"applies_to": applies_to})
+    # Authority confidence, not fidelity: every span is verbatim by
+    # construction (tested), but only published passages quote a real source.
+    return passage.model_copy(update={
+        "applies_to": applies_to,
+        "confidence": 1.0 if not passage.synthetic else 0.6,
+    })
 
 
 def citations_for(anomaly: dict) -> list[Citation]:
@@ -172,9 +179,27 @@ def citations_for(anomaly: dict) -> list[Citation]:
     if pressure_var > PRESSURE_VARIANCE_ALERT:
         out.append(_cite("pressure", f"Pressure variance {pressure_var}% is past the {PRESSURE_VARIANCE_ALERT}% seal-replacement threshold."))
 
+    from model.physics import PHYSICS_CONSISTENCY_ALERT
+
+    physics = anomaly.get("physics_consistency")
+    if physics is not None and physics > PHYSICS_CONSISTENCY_ALERT:
+        out.append(_cite(
+            "bearing_freq",
+            "Heat and vibration agree, which is the friction signature of a "
+            "bearing fault. Check BPFO/BPFI with a handheld analyser.",
+        ))
+
     if severity in ("alert", "critical"):
         out.append(_cite("lockout", "Servicing this machine requires energy isolation before work begins."))
         out.append(_cite("guarding", "Rotating parts are the hazard class driving this verdict."))
+
+    contributing = anomaly.get("contributing_feature", "")
+    if severity in ("alert", "critical") and contributing == "vibration":
+        out.append(_cite(
+            "power_transmission",
+            "A vibration-driven verdict on rotating transmission parts: "
+            "cracked or broken pulleys must not be run.",
+        ))
 
     seen: set[str] = set()
     unique: list[Citation] = []

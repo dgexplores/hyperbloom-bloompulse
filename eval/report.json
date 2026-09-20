@@ -1,8 +1,8 @@
 {
-  "corpus_version": "bloompulse-2026.08.31-v1+cc5914f8",
+  "corpus_version": "bloompulse-2026.08.31-v1+354502c4",
   "fixtures": 7,
   "span_fidelity": 1.0,
-  "spans_checked": 15,
+  "spans_checked": 16,
   "citation_coverage": 1.0,
   "severity_accuracy": 1.0,
   "healthy_fp_rate": 0.02,
@@ -10,8 +10,8 @@
   "drift_detection": 1.0,
   "drift_fixtures": 20,
   "abstention_rate": 0.2857,
-  "latency_ms_p50": 13.8,
-  "latency_ms_p95": 14.1,
+  "latency_ms_p50": 14.6,
+  "latency_ms_p95": 17.4,
   "detail": [
     {
       "fixture": "healthy steady",
@@ -50,7 +50,7 @@
       "expected": "critical",
       "actual": "critical",
       "match": true,
-      "citations": 3,
+      "citations": 4,
       "confidence": 85.0
     },
     {

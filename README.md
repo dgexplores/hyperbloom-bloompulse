@@ -51,7 +51,7 @@ install, no account, no fee. A CSV file and a browser is the whole requirement.
 | Healthy machines correctly reported as normal | 98% (196 / 200) |
 | Sub-threshold drift caught with no limit breached | 100% (20 / 20) |
 | Verdicts matching hand-labelled test cases | 7 / 7, 100% |
-| Every citation checked against the source text | 15 / 15, 100% |
+| Every citation checked against the source text | 16 / 16, 100% |
 | Deployed function size | under Vercel's 225MB limit |
 | Cost to run the demo | $0, no key required |
 
@@ -65,7 +65,7 @@ every CI run, not typed in by hand.)
   machine's own baseline) and an `inspection_window_days` (a policy lookup on
   severity). An earlier revision published a "7 day failure probability" that
   was an affine transform of the anomaly score. It was removed.
-- **`span_fidelity` has two tests.** The parser-invariant test (15/15) checks a
+- **`span_fidelity` has two tests.** The parser-invariant test (16/16) checks a
   span against the file it was parsed from, which is circular. The second test
   checks every `**Provenance:** published` span against a checked-in reference
   copy of the source text (`corpus/reference/`). A paraphrase cannot sit behind
@@ -311,7 +311,7 @@ version hard-coded `faithfulness: 1.0`.
 | `drift_detection` | 1.0 (20/20) | Sub-threshold drift escalated with no published limit breached. The one thing the model does that the gates cannot. |
 | `severity_accuracy` | 1.0 (7/7) | Agreement with hand-labelled fixtures |
 | `citation_coverage` | 1.0 | Every verdict carries at least one source |
-| `span_fidelity` | 1.0 (15/15) | Spans round-trip through the parser, plus every published span is checked against a checked-in reference copy of the source text. A paraphrase cannot sit behind a published marker. |
+| `span_fidelity` | 1.0 (16/16) | Spans round-trip through the parser, plus every published span is checked against a checked-in reference copy of the source text. A paraphrase cannot sit behind a published marker. |
 | `abstention_rate` | 0.29 | Only the genuinely ambiguous cases |
 | `latency_ms` p50 | ~15 ms | About 40 to 70ms on the deployed function |
 

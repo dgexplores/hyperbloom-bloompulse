@@ -31,6 +31,9 @@ class Citation(BaseModel):
     # "synthetic" appearing anywhere in the section, so an invented passage that
     # did not use that word was presented as a standard.
     synthetic: bool = True
+    # Authority confidence, not fidelity: 1.0 quotes a published source,
+    # 0.6 is demo-written guidance. The span itself is always verbatim.
+    confidence: float = 1.0
 
 class Confidence(BaseModel):
     score: float = Field(ge=0, le=100)

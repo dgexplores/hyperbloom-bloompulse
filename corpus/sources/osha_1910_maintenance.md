@@ -24,9 +24,18 @@
 > "Vibration analysis threshold for critical rotating equipment: Velocity > 4.5 mm/s RMS indicates early bearing failure stage. Temperature rise >15C above baseline indicates lubrication failure. Pressure variance >12% indicates seal degradation."
 **Locator:** CPL 02-00-147 App A - Predictive thresholds table
 **Source:** https://www.osha.gov/laws-regs/standardinterpretations - written for this demo, not a published excerpt
+**Locator:** CPL 02-00-147 App A - Predictive thresholds table
+**Source:** https://www.osha.gov/laws-regs/standardinterpretations - written for this demo, not a published excerpt
 
 ## ISO 10816-3 - Vibration Severity (Industrial)
 > "Group 2 medium machines: Zone A/B boundary 1.4 mm/s, B/C boundary 2.8 mm/s, C/D boundary 4.5 mm/s. Zone D requires immediate shutdown."
 **Locator:** ISO 10816-3:2009 Table A.2 - boundary values restated, not quoted verbatim
 **Source:** https://www.iso.org/standard/50528.html
 **Version:** iso10816-2024-v1
+
+## Sec 1910.219(d)(3) - Broken Pulleys
+> "Pulleys with cracks, or pieces broken out of rims, shall not be used."
+**Locator:** Sec 1910.219(d)(3) - Broken pulleys
+**Source:** https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.219
+**Verified:** 2026-09-20, verbatim against the OSHA page above
+**Provenance:** published

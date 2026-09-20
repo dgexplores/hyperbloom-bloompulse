@@ -66,3 +66,12 @@ openings no larger than one-half (½) inch.
 Note: the corpus previously filed this passage under 1910.219(p). It is not in
 1910.219 at all — that paragraph is "Care of equipment" — and 1910.219 covers
 power-transmission apparatus, not fan guarding.
+
+---
+
+## OSHA 29 CFR 1910.219(d)(3) — Broken pulleys
+
+Source: https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.219
+Copied: 2026-09-20
+
+Pulleys with cracks, or pieces broken out of rims, shall not be used.
