@@ -80,6 +80,16 @@ class PulseResponse(BaseModel):
     disclaimer: str = "Information only — not a substitute for certified inspection. Verify at source links before acting."
     latency_ms: int | None = None
     free_tier: bool = True
+    # Instrument evidence. trend_ci is the 95% bootstrap interval of the
+    # driving displacement (trend-z units); physics_consistency scores
+    # heat/vibration agreement; physics_hz guides a handheld analyser under
+    # the stated assumed bearing; seasonal_period reports a detected cycle.
+    trend_ci: list[float] | None = None
+    physics_consistency: float | None = None
+    physics_hz: dict[str, float] | None = None
+    assumed_bearing: str | None = None
+    seasonal_period: int | None = None
+    conformal_set: list[int] | None = None
 
 class HealthResponse(BaseModel):
     status: str = "ok"

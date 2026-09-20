@@ -36,11 +36,11 @@ FALSE_POSITIVE_BUDGET = 0.02
 TOLERANCE = 0.011
 
 
-def measure(readings: list[dict]) -> tuple[float | None, float | None]:
-    """Both drift instruments for one series, without the gates involved."""
+def measure(readings: list[dict]) -> tuple[float | None, float | None, float | None]:
+    """All three drift instruments for one series, without the gates involved."""
     engine = BloomPulseAnomaly()
     engine.score(readings)
-    return engine.last_drift, engine.last_trend_z
+    return engine.last_drift, engine.last_trend_z, engine.last_physics
 
 
 def quantiles(values: np.ndarray, unit: str) -> None:
@@ -53,8 +53,9 @@ def main() -> None:
     size = 400
     pairs = [measure(series) for series in population(size)]
 
-    drift = np.array([d for d, _ in pairs if d is not None])
-    trend = np.array([t for _, t in pairs if t is not None])
+    drift = np.array([d for d, _, _ in pairs if d is not None])
+    trend = np.array([t for _, t, _ in pairs if t is not None])
+    physics = np.array([p for _, _, p in pairs if p is not None])
 
     print(f"healthy population: {size} series "
           f"({size - len(drift)} too short or too flat to model)")
@@ -64,6 +65,9 @@ def main() -> None:
 
     print(f"\ntrend z (n={len(trend)})")
     quantiles(trend, "")
+
+    print(f"\nphysics consistency (n={len(physics)})")
+    quantiles(physics, "")
 
     # DRIFT_MONITOR: at most FALSE_POSITIVE_BUDGET of healthy machines cross it.
     # It comes out below zero, which is the point: a healthy machine's recent
@@ -88,9 +92,28 @@ def main() -> None:
     print(f"TREND_ALERT   = {trend_alert}   "
           f"-> {trend_alert / max(trend.max(), 1e-9):.1f}x the largest healthy trend")
 
+    # PHYSICS_CONSISTENCY_ALERT: healthy machines sit at ~0.5 (stillness).
+    # The cut sits in the empty band above the largest healthy value.
+    physics_alert = 0.9
+    print(f"PHYSICS_CONSISTENCY_ALERT = {physics_alert}   "
+          f"-> healthy max {physics.max():.3f}, "
+          f"flags {(physics > physics_alert).mean():.2%} of healthy machines")
+
+    # CONFORMAL_DRIFT_Q95: split-conformal threshold on the worst normalized
+    # instrument margin, calibrated on the first 200 healthy series.
+    from model.conformal import CONFORMAL_DRIFT_Q95, calibration_threshold, drift_nonconformity
+
+    cal_scores = [drift_nonconformity(series) for series in population(200)]
+    conformal_measured = round(calibration_threshold(cal_scores), 3)
+    print(f"\nconformal nonconformity (n={len(cal_scores)})")
+    quantiles(np.array(cal_scores), "")
+    print(f"CONFORMAL_DRIFT_Q95 = {conformal_measured}   "
+          f"-> pasted constant {CONFORMAL_DRIFT_Q95}")
+
     from model.anomaly import (
         DRIFT_ALERT, DRIFT_MONITOR, TREND_ALERT, TREND_MONITOR,
     )
+    from model.physics import PHYSICS_CONSISTENCY_ALERT
 
     print()
     print("in model/anomaly.py: "
@@ -103,6 +126,8 @@ def main() -> None:
             ("DRIFT_ALERT", DRIFT_ALERT, drift_alert),
             ("TREND_MONITOR", TREND_MONITOR, trend_monitor),
             ("TREND_ALERT", TREND_ALERT, trend_alert),
+            ("PHYSICS_CONSISTENCY_ALERT", PHYSICS_CONSISTENCY_ALERT, physics_alert),
+            ("CONFORMAL_DRIFT_Q95", CONFORMAL_DRIFT_Q95, conformal_measured),
         )
         if abs(current - measured) > TOLERANCE
     ]
@@ -110,7 +135,7 @@ def main() -> None:
         for name, current, measured in mismatches:
             print(f"  ^ {name} is {current}, measured {measured}. Update it.")
         sys.exit(1)
-    print("  ^ all four match the measured cuts.")
+    print("  ^ all six match the measured cuts.")
 
 
 if __name__ == "__main__":

@@ -391,6 +391,7 @@ def test_the_model_escalates_drift_that_no_published_limit_catches():
     from model.anomaly import (
         TEMP_RISE_THRESHOLD, TREND_MONITOR, VIB_NORMAL, BloomPulseAnomaly,
     )
+    from model.physics import PHYSICS_CONSISTENCY_ALERT
 
     rng = np.random.default_rng(0)
     readings = [{
@@ -411,7 +412,13 @@ def test_the_model_escalates_drift_that_no_published_limit_catches():
     # ...and a model instrument is the reason the verdict is not "normal".
     assert engine.last_trend_z is not None
     assert engine.last_trend_z > TREND_MONITOR
-    assert result["severity"] == "monitor"
+    # Heat and vibration climb together here (+13 C toward a 15 C limit, in
+    # lockstep), so the physics instrument confirms the displacement and the
+    # ambiguous monitor band escalates to alert. A lone drift with no heat
+    # agreement would stay at monitor.
+    assert engine.last_physics is not None
+    assert engine.last_physics > PHYSICS_CONSISTENCY_ALERT
+    assert result["severity"] == "alert"
     # The channel named is the one that moved, and it is not vibration here.
     assert result["contributing_feature"] == "temperature_rise"
 

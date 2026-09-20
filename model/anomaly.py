@@ -10,6 +10,15 @@ from __future__ import annotations
 import numpy as np
 
 from model.iforest import IsolationForest
+from model.physics import (
+    DEFAULT_BEARING,
+    PHYSICS_CONSISTENCY_ALERT,
+    defect_frequencies,
+    friction_consistency,
+)
+from model.seasonal import seasonal_period
+from model.confidence import trend_ci
+from model.conformal import CONFORMAL_DRIFT_Q95, _margins, prediction_set
 
 # Thresholds from corpus: ISO 10816-3 Table A.2 + NTN manual Sec 4.2
 VIB_NORMAL = 2.8            # mm/s - Zone B/C boundary
@@ -70,6 +79,7 @@ class BloomPulseAnomaly:
         # than from the severity it produces.
         self.last_drift: float | None = None
         self.last_trend_z: float | None = None
+        self.last_physics: float | None = None
 
     def _features(self, readings: list[dict]) -> np.ndarray:
         """6-dim feature matrix, one row per reading. See FEATURES."""
@@ -153,6 +163,16 @@ class BloomPulseAnomaly:
         trend = self._trend(X)
         self.last_trend_z = max(abs(v) for v in trend.values()) if modeled else None
 
+        # The third instrument: heat and vibration moving together is friction
+        # evidence. It only ever confirms a displacement the trend test already
+        # saw (never fires alone), escalating the ambiguous monitor band to
+        # alert when the machine agrees with itself.
+        if modeled:
+            physics = friction_consistency(trend["vibration"], trend["temperature_rise"])
+        else:
+            physics = None
+        self.last_physics = physics
+
         recent = X[-RECENT_WINDOW:]
         max_vib = float(recent[:, I_VIB].max())
         max_temp_rise = float(recent[:, I_RISE].max())
@@ -191,6 +211,21 @@ class BloomPulseAnomaly:
                 drift_floor = max(drift_floor, 0.78)
             elif self.last_trend_z > TREND_MONITOR:
                 drift_floor = max(drift_floor, 0.58)
+        if (
+            self.last_physics is not None
+            and self.last_physics > PHYSICS_CONSISTENCY_ALERT
+            and self.last_trend_z is not None
+            and TREND_MONITOR < self.last_trend_z <= TREND_ALERT
+        ):
+            drift_floor = max(drift_floor, 0.78)
+
+        # Seasonal structure, vibration channel first. Reported for the
+        # operator; it never votes (see model/seasonal.py for why not).
+        vib_series = np.array([r["vibration_mm_s"] for r in readings], dtype=float)
+        temp_series = np.array([r["temperature_c"] for r in readings], dtype=float)
+        season = seasonal_period(vib_series)
+        if season is None:
+            season = seasonal_period(temp_series)
 
         agg_score = float(np.clip(max(gate_floor, drift_floor), 0.0, 1.0))
 
@@ -217,12 +252,47 @@ class BloomPulseAnomaly:
         else:
             contrib = "vibration"
 
+        # Guide frequencies for the technician's handheld analyser, from the
+        # series' median speed and an assumed common bearing. Approximate by
+        # design; detection never depends on them.
+        rpms = [float(r["rpm"]) for r in readings if r.get("rpm") not in (None,)]
+        physics_hz: dict[str, float] | None = None
+        assumed_bearing: str | None = None
+        if rpms and max(rpms) > 0:
+            try:
+                raw_hz = defect_frequencies(float(np.median(rpms)), DEFAULT_BEARING)
+                physics_hz = {k: round(v, 1) for k, v in raw_hz.items()}
+                assumed_bearing = DEFAULT_BEARING
+            except ValueError:
+                physics_hz = None
+
+        # Uncertainty on the driving displacement. A monitor verdict whose
+        # interval includes zero is published as an abstention downstream.
+        ci: list[float] | None = None
+        if modeled:
+            ci_col = {
+                "vibration": I_VIB,
+                "temperature_rise": I_TEMP,
+                "pressure_variance": I_PRESS,
+            }.get(contrib)
+            if ci_col is not None:
+                lo, hi = trend_ci(X[:TREND_OPENING, ci_col], X[-RECENT_WINDOW:, ci_col])
+                ci = [round(lo, 2), round(hi, 2)]
+
         return {
             # 0..1 index of how far from baseline the machine has moved. Not a
             # probability, and named so that nobody reads it as one.
             "anomaly_index": round(agg_score, 3),
             "drift": round(drift, 4) if drift is not None else None,
             "trend_z": round(self.last_trend_z, 2) if self.last_trend_z is not None else None,
+            "physics_consistency": round(physics, 3) if physics is not None else None,
+            "physics_hz": physics_hz,
+            "assumed_bearing": assumed_bearing,
+            "seasonal_period": season,
+            "trend_ci": ci,
+            "conformal_set": prediction_set(
+                _margins(self.last_drift, self.last_trend_z), CONFORMAL_DRIFT_Q95
+            ),
             "gate_breached": sorted(breached),
             # A policy lookup on severity, not a prediction. See README.
             "inspection_window_days": days,

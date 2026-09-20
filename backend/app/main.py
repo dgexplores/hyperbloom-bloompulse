@@ -329,6 +329,28 @@ def _confidence(result: dict) -> Confidence:
                      f"so no baseline could be modelled. Nothing here crosses a published "
                      f"limit either, which is why this is not a verdict.")
 
+    # A displacement whose confidence interval includes zero is a guess
+    # wearing a number. Monitor verdicts rest entirely on displacement, so a
+    # fragile one is published as an abstention with the reason stated.
+    # (Model-escalated alerts never meet the trigger in practice: drift past
+    # 0.10 without tripping a gate is unreachable in the measured data, so
+    # the rule stays scoped to monitor rather than claim coverage it has no
+    # proof of.) A breached published limit is a measurement and always stands.
+    ci = result.get("trend_ci")
+    if (
+        severity == "monitor"
+        and not result.get("gate_breached")
+        and isinstance(ci, list)
+        and len(ci) == 2
+        and ci[0] <= 0 <= ci[1]
+    ):
+        return Confidence(
+            score=score,
+            rationale=rationale + " The displacement is not robust under "
+            "resampling, so this is published as an abstention.",
+            abstain=True,
+        )
+
     return Confidence(score=score, rationale=rationale, abstain=score < CONFIDENCE_FLOOR)
 
 
@@ -503,6 +525,12 @@ def analyze(req: PulseRequest) -> PulseResponse:
         work_order=_work_order(req.equipment_id, req.equipment_type, result),
         corpus_version=corpus_version(),
         latency_ms=int((time.perf_counter() - started) * 1000),
+        trend_ci=result.get("trend_ci"),
+        physics_consistency=result.get("physics_consistency"),
+        physics_hz=result.get("physics_hz"),
+        assumed_bearing=result.get("assumed_bearing"),
+        seasonal_period=result.get("seasonal_period"),
+        conformal_set=result.get("conformal_set"),
     )
 
 
