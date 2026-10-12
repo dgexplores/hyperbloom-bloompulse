@@ -74,6 +74,35 @@ class IsolationForest:
             self._grow(X[~mask], depth + 1, limit, rng),
         )
 
+    def _grow_rows(self, rows: list[list[float]], depth: int, limit: int, rng) -> Node:
+        """Build tiny trees without allocating arrays at every branch.
+
+        The feature order, random draws, comparisons and recursion order match
+        _grow exactly. Larger/non-finite inputs retain the numpy path.
+        """
+        n = len(rows)
+        if depth >= limit or n <= 1:
+            return ("leaf", n)
+        columns = list(zip(*rows))
+        low = [min(column) for column in columns]
+        high = [max(column) for column in columns]
+        usable = [i for i in range(len(low)) if high[i] > low[i]]
+        if not usable:
+            return ("leaf", n)
+        feature = int(usable[rng.integers(len(usable))])
+        threshold = float(rng.uniform(low[feature], high[feature]))
+        left: list[list[float]] = []
+        right: list[list[float]] = []
+        for row in rows:
+            (left if row[feature] < threshold else right).append(row)
+        if not left or not right:
+            return ("leaf", n)
+        return (
+            feature, threshold,
+            self._grow_rows(left, depth + 1, limit, rng),
+            self._grow_rows(right, depth + 1, limit, rng),
+        )
+
     def fit(self, X: np.ndarray) -> IsolationForest:
         X = np.asarray(X, dtype=float)
         n = len(X)
@@ -85,9 +114,15 @@ class IsolationForest:
         rng = np.random.default_rng(self.random_state)
 
         self.trees_ = []
+        # The API normally fits 8-30 rows. Python scalars avoid thousands of
+        # small numpy reductions/copies, without changing the learned forest.
+        rows = X.tolist() if n <= 32 and np.isfinite(X).all() else None
         for _ in range(self.n_estimators):
             idx = rng.choice(n, self.subsample_size_, replace=n < self.subsample_size_)
-            self.trees_.append(self._grow(X[idx], 0, limit, rng))
+            if rows is not None:
+                self.trees_.append(self._grow_rows([rows[i] for i in idx], 0, limit, rng))
+            else:
+                self.trees_.append(self._grow(X[idx], 0, limit, rng))
         return self
 
     def _path_length(self, x: np.ndarray, node: Node) -> float:
