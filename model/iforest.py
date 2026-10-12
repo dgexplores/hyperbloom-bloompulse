@@ -48,6 +48,7 @@ class IsolationForest:
         self.random_state = random_state
         self.trees_: list[Node] = []
         self.subsample_size_ = 0
+        self._row_ranges: dict | None = None
 
     def _grow(self, X: np.ndarray, depth: int, limit: int, rng) -> Node:
         n = len(X)
@@ -83,10 +84,37 @@ class IsolationForest:
         n = len(rows)
         if depth >= limit or n <= 1:
             return ("leaf", n)
-        columns = list(zip(*rows))
-        low = [min(column) for column in columns]
-        high = [max(column) for column in columns]
-        usable = [i for i in range(len(low)) if high[i] > low[i]]
+        if n == 2:
+            first, second = rows
+            cache = self._row_ranges
+            key = frozenset((id(first), id(second))) if cache is not None else None
+            usable = cache.get(key) if cache is not None else None
+            if usable is None:
+                usable = [i for i in range(len(first)) if first[i] != second[i]]
+                if cache is not None:
+                    cache[key] = usable
+            if not usable:
+                return ("leaf", n)
+            feature = int(usable[rng.integers(len(usable))])
+            a, b = first[feature], second[feature]
+            lower, upper = (a, b) if a < b else (b, a)
+            threshold = float(rng.uniform(lower, upper))
+            if threshold <= lower:
+                return ("leaf", n)
+            return (feature, threshold, ("leaf", 1), ("leaf", 1))
+
+        cache = self._row_ranges
+        key = frozenset(map(id, rows)) if cache is not None else None
+        ranges = cache.get(key) if cache is not None else None
+        if ranges is None:
+            columns = list(zip(*rows))
+            low = [min(column) for column in columns]
+            high = [max(column) for column in columns]
+            usable = [i for i in range(len(low)) if high[i] > low[i]]
+            if cache is not None:
+                cache[key] = (low, high, usable)
+        else:
+            low, high, usable = ranges
         if not usable:
             return ("leaf", n)
         feature = int(usable[rng.integers(len(usable))])
@@ -117,12 +145,16 @@ class IsolationForest:
         # The API normally fits 8-30 rows. Python scalars avoid thousands of
         # small numpy reductions/copies, without changing the learned forest.
         rows = X.tolist() if n <= 32 and np.isfinite(X).all() else None
+        # Ranges depend only on row membership, not ordering or random draws.
+        # Share them within this fit only; never cache trees or model results.
+        self._row_ranges = {} if rows is not None else None
         for _ in range(self.n_estimators):
             idx = rng.choice(n, self.subsample_size_, replace=n < self.subsample_size_)
             if rows is not None:
                 self.trees_.append(self._grow_rows([rows[i] for i in idx], 0, limit, rng))
             else:
                 self.trees_.append(self._grow(X[idx], 0, limit, rng))
+        self._row_ranges = None
         return self
 
     def _path_length(self, x: np.ndarray, node: Node) -> float:
@@ -145,6 +177,6 @@ class IsolationForest:
             return np.full(len(X), 0.5)
         trees = self.trees_
         mean_depth = np.array([
-            sum(self._path_length(x, tree) for tree in trees) / len(trees) for x in X
+            sum(self._path_length(x, tree) for tree in trees) / len(trees) for x in X.tolist()
         ])
         return 2.0 ** (-mean_depth / c)
