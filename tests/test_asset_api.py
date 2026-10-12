@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app, asset_registry
 
+pytestmark = pytest.mark.integration
+
 client = TestClient(app)
 
 # Clear registry before each test
