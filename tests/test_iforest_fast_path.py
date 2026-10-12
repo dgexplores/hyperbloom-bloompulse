@@ -49,3 +49,13 @@ def test_degenerate_split_remains_leaf():
 
     model = IsolationForest()
     assert model._grow_rows([[0.0], [1.0]], 0, 2, LowestThreshold()) == ("leaf", 2)
+
+
+def test_range_cache_does_not_survive_fit():
+    model = IsolationForest()
+    rng = np.random.default_rng(9)
+    for _ in range(3):
+        X = rng.normal(size=(15, 6))
+        model.fit(X)
+        assert model._row_ranges is None
+        assert model.trees_ == NumpyReference().fit(X).trees_
