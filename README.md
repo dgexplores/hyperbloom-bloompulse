@@ -20,6 +20,16 @@ Deadline **14 September 2026, 5:00pm EDT**.
 
 Built for the Hyperbloom September AI/ML hackathon. MIT licensed.
 
+## 60-second brief
+
+Sensor CSV in, machine-condition verdict out — every claim quoted verbatim from a git-tracked standards corpus. Stack: one FastAPI serverless function (`api/index.py`), numpy-only Isolation Forest + trend instrument (`model/`), offline extractive citations (`corpus/sources/`), React strip-chart SPA (`frontend/`). No DB, no API key. CI + deploy-verify badges above track the existing workflows; live demo link above verified HTTP 200 on 2026-10-08.
+
+| | |
+|---|---|
+| Code | [`backend/app/`](backend/app) · [`model/`](model) · [`api/index.py`](api/index.py) · [`frontend/src/`](frontend/src) |
+| Evidence | [`corpus/`](corpus) (sources + manifest) · [`eval/`](eval) (measured metrics) · [`tests/`](tests) |
+| Docs | [`PRODUCT.md`](PRODUCT.md) · [`DESIGN.md`](DESIGN.md) · [`docs/`](docs) |
+
 ---
 
 ## In plain words

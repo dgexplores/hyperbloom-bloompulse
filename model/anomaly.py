@@ -151,7 +151,7 @@ class BloomPulseAnomaly:
             # boundary exactly on the noise floor, which reported 41% of
             # healthy machines as drifting.
             floor = float(np.percentile(self.model.score_samples(fit_slice), 95))
-            recent_score = float(np.mean(self.model.score_samples(X)[-RECENT_WINDOW:]))
+            recent_score = float(np.mean(self.model.score_samples(X[-RECENT_WINDOW:])))
             drift = recent_score - floor
         else:
             drift = None
