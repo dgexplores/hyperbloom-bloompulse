@@ -60,10 +60,11 @@ class IsolationForest:
         if usable.size == 0:
             return ("leaf", n)
 
-        feature = int(rng.choice(usable))
+        feature = int(usable[rng.integers(usable.size)])
         threshold = float(rng.uniform(low[feature], high[feature]))
         mask = X[:, feature] < threshold
-        if not mask.any() or mask.all():
+        left_count = int(np.count_nonzero(mask))
+        if left_count == 0 or left_count == n:
             return ("leaf", n)
 
         return (
